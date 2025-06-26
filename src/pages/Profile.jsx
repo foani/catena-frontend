@@ -267,119 +267,160 @@ export default function ProfilePage() {
         }
     }, []);
 
-    // 🔧 최적화: 백엔드에서 사용자 데이터 완전 동기화 (스코어 보존)
+    // 🔧 최적화: 안전한 백엔드 데이터 동기화 (데이터 손실 방지)
     const syncUserDataFromBackend = useCallback(async () => {
         if (!userRef.current?.email) return;
         
         try {
-            console.log('📊 [Profile] 백엔드 데이터 동기화 시작 (스코어 보존 모드):', userRef.current.email);
+            console.log('📊 [Profile] 안전한 백엔드 데이터 동기화 시작:', userRef.current.email);
+            
+            // 현재 로컬 데이터 보존
+            const localBackup = {
+                score: userRef.current.score || 0,
+                ctt_points: userRef.current.ctt_points || 0,
+                full_name: userRef.current.full_name,
+                other_data: { ...userRef.current }
+            };
+            
+            console.log('💾 [Profile] 로컬 데이터 백업:', localBackup);
             
             // 1. 백엔드에서 최신 사용자 데이터 가져오기
             const allUsers = await ServerAPI.getAllUsers();
             if (!allUsers) {
-                throw new Error('백엔드에서 사용자 데이터를 가져올 수 없습니다.');
+                throw new Error('백엔드 연결 실패 - 로컬 데이터 유지');
             }
             
             const backendUser = allUsers.find(u => u.email === userRef.current.email);
             if (!backendUser) {
                 console.warn('[Profile] 백엔드에 사용자가 없음 - 로컬 데이터로 새로 등록');
                 
-                // 🔧 수정: 로컬 데이터를 백엔드에 등록 (스코어 보존)
+                // 로컬 데이터를 백엔드에 안전하게 등록
                 const registeredUser = await ServerAPI.registerUser({
                     id: userRef.current.id,
                     full_name: userRef.current.full_name,
                     email: userRef.current.email,
                     walletAddress: userRef.current.walletAddress || '',
-                    score: userRef.current.score || 0,
-                    ctt_points: userRef.current.ctt_points || 0,
+                    score: localBackup.score,
+                    ctt_points: localBackup.ctt_points,
                     is_admin: userRef.current.is_admin || false
                 });
                 
                 if (registeredUser) {
                     console.log('✅ [Profile] 로컬 데이터로 백엔드 등록 성공');
-                    setBackendCttPoints(registeredUser.ctt_points || 0);
+                    setBackendCttPoints(registeredUser.ctt_points || localBackup.ctt_points);
                 } else {
-                    throw new Error('사용자 등록 실패');
+                    console.warn('⚠️ [Profile] 백엔드 등록 실패 - 로컬 데이터 유지');
+                    setBackendCttPoints(localBackup.ctt_points);
                 }
             } else {
                 console.log('✅ [Profile] 백엔드 데이터 발견:', {
                     backend_score: backendUser.score,
                     backend_ctt: backendUser.ctt_points,
-                    local_score: userRef.current.score,
-                    local_ctt: userRef.current.ctt_points
+                    local_score: localBackup.score,
+                    local_ctt: localBackup.ctt_points
                 });
                 
-                // 🔧 수정: 로컬과 백엔드 데이터 중 더 큰 값을 사용
-                const finalScore = Math.max(Number(backendUser.score) || 0, Number(userRef.current.score) || 0);
-                const finalCttPoints = Math.max(Number(backendUser.ctt_points) || 0, Number(userRef.current.ctt_points) || 0);
+                // 🔧 안전한 데이터 검증 및 병합
+                const backendScore = Number(backendUser.score);
+                const backendCttPoints = Number(backendUser.ctt_points);
+                const localScore = Number(localBackup.score);
+                const localCttPoints = Number(localBackup.ctt_points);
                 
-                console.log('🔄 [Profile] 최종 데이터 결정:', {
+                // 유효한 데이터만 비교 (NaN이나 null 방지)
+                const validBackendScore = isNaN(backendScore) ? 0 : backendScore;
+                const validBackendCtt = isNaN(backendCttPoints) ? 0 : backendCttPoints;
+                const validLocalScore = isNaN(localScore) ? 0 : localScore;
+                const validLocalCtt = isNaN(localCttPoints) ? 0 : localCttPoints;
+                
+                // 안전한 최대값 결정 (더 큰 값을 우선하되, 0이면 다른 값 선택)
+                let finalScore = Math.max(validBackendScore, validLocalScore);
+                let finalCttPoints = Math.max(validBackendCtt, validLocalCtt);
+                
+                console.log('🔄 [Profile] 안전한 데이터 병합 결과:', {
                     final_score: finalScore,
                     final_ctt: finalCttPoints,
-                    score_source: finalScore === (userRef.current.score || 0) ? 'local' : 'backend',
-                    ctt_source: finalCttPoints === (userRef.current.ctt_points || 0) ? 'local' : 'backend'
+                    score_source: finalScore === validLocalScore ? 'local' : 'backend',
+                    ctt_source: finalCttPoints === validLocalCtt ? 'local' : 'backend',
+                    data_preserved: finalScore >= validLocalScore && finalCttPoints >= validLocalCtt
                 });
                 
-                // 2. 백엔드 데이터가 로컬보다 작으면 백엔드를 업데이트
-                if (finalScore > (backendUser.score || 0) || finalCttPoints > (backendUser.ctt_points || 0)) {
-                    console.log('📤 [Profile] 로컬 데이터가 더 최신 - 백엔드 업데이트');
-                    
-                    await ServerAPI.updateScore(
-                        userRef.current.email,
-                        finalScore,
-                        finalCttPoints,
-                        userRef.current.full_name
-                    );
-                    
-                    console.log('✅ [Profile] 백엔드 업데이트 완료');
+                // 데이터 손실 방지 검증
+                if (finalScore < validLocalScore || finalCttPoints < validLocalCtt) {
+                    console.warn('⚠️ [Profile] 데이터 손실 감지 - 로컬 데이터 강제 보존');
+                    finalScore = validLocalScore;
+                    finalCttPoints = validLocalCtt;
                 }
                 
-                // 3. React 상태 업데이트 (최종 값으로)
-                const updatedUserData = {
-                    score: finalScore,
-                    ctt_points: finalCttPoints,
-                    synced_with_backend: true,
-                    last_sync: new Date().toISOString()
-                };
-                
-                await updateUserData(updatedUserData);
-                setBackendCttPoints(finalCttPoints);
-                
-                // 4. localStorage도 최종 값으로 업데이트
-                const rawUsers = localStorage.getItem('catena_users');
-                if (rawUsers) {
-                    const localUsers = JSON.parse(rawUsers);
-                    const userIndex = localUsers.findIndex(u => u.email === userRef.current.email);
+                // 2. 백엔드 업데이트가 필요한 경우만 업데이트
+                if (finalScore > validBackendScore || finalCttPoints > validBackendCtt) {
+                    console.log('📤 [Profile] 백엔드 데이터 업데이트 필요');
                     
-                    if (userIndex !== -1) {
-                        localUsers[userIndex] = {
-                            ...localUsers[userIndex],
-                            score: finalScore,
-                            ctt_points: finalCttPoints,
-                            updated_at: new Date().toISOString(),
-                            synced_with_backend: true
-                        };
-                        
-                        localStorage.setItem('catena_users', JSON.stringify(localUsers));
-                        console.log('✅ [Profile] localStorage 최종 동기화 완료');
+                    try {
+                        await ServerAPI.updateScore(
+                            userRef.current.email,
+                            finalScore,
+                            finalCttPoints,
+                            userRef.current.full_name
+                        );
+                        console.log('✅ [Profile] 백엔드 업데이트 성공');
+                    } catch (updateError) {
+                        console.error('❌ [Profile] 백엔드 업데이트 실패:', updateError);
+                        // 실패해도 로컬 데이터는 보존
                     }
                 }
                 
-                // 5. 통계 데이터 다시 계산
+                // 3. 안전한 React 상태 업데이트 (기존 데이터 보존)
+                if (finalScore !== validLocalScore || finalCttPoints !== validLocalCtt) {
+                    console.log('🔄 [Profile] React 상태 업데이트');
+                    
+                    // 부분 업데이트만 수행 (전체 데이터 덮어쓰기 방지)
+                    const safeUpdateData = {
+                        score: finalScore,
+                        ctt_points: finalCttPoints,
+                        synced_with_backend: true,
+                        last_sync: new Date().toISOString()
+                    };
+                    
+                    // updateUserData 대신 직접 localStorage 업데이트
+                    const rawUsers = localStorage.getItem('catena_users');
+                    if (rawUsers) {
+                        const localUsers = JSON.parse(rawUsers);
+                        const userIndex = localUsers.findIndex(u => u.email === userRef.current.email);
+                        
+                        if (userIndex !== -1) {
+                            // 기존 데이터 보존하면서 필요한 부분만 업데이트
+                            localUsers[userIndex] = {
+                                ...localUsers[userIndex],
+                                ...safeUpdateData
+                            };
+                            
+                            localStorage.setItem('catena_users', JSON.stringify(localUsers));
+                            console.log('✅ [Profile] localStorage 안전 업데이트 완료');
+                        }
+                    }
+                }
+                
+                // 4. 백엔드 CTT 포인트 표시 업데이트
+                setBackendCttPoints(finalCttPoints);
+                
+                // 5. 통계 데이터 재계산
                 await recalculateStats();
                 
-                console.log('🎉 [Profile] 완전 동기화 성공 - 스코어 보존됨:', {
+                console.log('🎉 [Profile] 안전한 동기화 완료 - 데이터 손실 방지됨:', {
                     email: userRef.current.email,
                     final_score: finalScore,
-                    final_ctt: finalCttPoints
+                    final_ctt: finalCttPoints,
+                    data_safe: true
                 });
             }
             
         } catch (error) {
-            console.error('💥 [Profile] 백엔드 동기화 실패:', error);
+            console.error('💥 [Profile] 동기화 실패 - 로컬 데이터 보존:', error);
+            // 실패 시 로컬 데이터 유지
+            setBackendCttPoints(userRef.current.ctt_points || 0);
             throw error;
         }
-    }, [updateUserData]);
+    }, []);  // updateUserData 의존성 제거로 무한 루프 방지
 
     // 🔧 최적화: 통계 데이터 재계산
     const recalculateStats = useCallback(async () => {
