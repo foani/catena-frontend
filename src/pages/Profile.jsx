@@ -12,7 +12,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 import LanguageSelector from '@/components/LanguageSelector';
 import { useTranslation } from '@/components/i18n';
 import CatenaWallet from '@/components/CatenaWallet';
-import { ServerAPI } from '@/api/serverAPI';
+import { ServerAPI, KeepAliveManager, HybridDataManager } from '@/api/serverAPI';
 import {
   Alert,
   AlertDescription,
@@ -226,8 +226,162 @@ export default function ProfilePage() {
         }
     }
 
-    // 수동 새로고침 핸들러
+    // 🚀 강력한 서버 깨우기 + 데이터 동기화 함수
+    const handleForceWakeupAndSync = async () => {
+        setIsRefreshing(true);
+        
+        try {
+            console.log('🚀 [Profile] 강력한 서버 깨우기 + 데이터 동기화 시작...');
+            
+            // 1. 백엔드 서버 강제 깨우기 (최대 3회 시도)
+            console.log('😴 [Profile] 백엔드 서버 깨우기 시도...');
+            const wakeUpSuccess = await KeepAliveManager.wakeUpServer();
+            
+            if (wakeUpSuccess) {
+                console.log('✅ [Profile] 서버 깨우기 성공! 데이터 동기화 시작...');
+                
+                // 2. 사용자 데이터 동기화
+                await syncUserDataFromBackend();
+                
+                alert('🎉 서버 연결 및 데이터 동기화 완료!');
+            } else {
+                console.log('❌ [Profile] 서버 깨우기 실패');
+                alert('⚠️ 서버 연결에 실패했습니다. 로컬 데이터를 사용합니다.');
+                
+                // 로컬 데이터로 대체
+                setBackendCttPoints(user?.ctt_points || 0);
+            }
+            
+        } catch (error) {
+            console.error('💥 [Profile] 강제 동기화 오류:', error);
+            alert('❌ 동기화 중 오류가 발생했습니다.');
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+    
+    // 📊 백엔드에서 사용자 데이터 완전 동기화
+    const syncUserDataFromBackend = async () => {
+        if (!user?.email) return;
+        
+        try {
+            console.log('📊 [Profile] 백엔드 데이터 완전 동기화 시작:', user.email);
+            
+            // 1. 백엔드에서 최신 사용자 데이터 가져오기
+            const allUsers = await ServerAPI.getAllUsers();
+            if (!allUsers) {
+                throw new Error('백엔드에서 사용자 데이터를 가져올 수 없습니다.');
+            }
+            
+            const backendUser = allUsers.find(u => u.email === user.email);
+            if (!backendUser) {
+                console.warn('[Profile] 백엔드에 사용자가 없음 - 새로 등록');
+                
+                // 백엔드에 사용자 등록
+                const registeredUser = await ServerAPI.registerUser({
+                    id: user.id,
+                    full_name: user.full_name,
+                    email: user.email,
+                    walletAddress: user.walletAddress || '',
+                    score: user.score || 0,
+                    ctt_points: user.ctt_points || 0,
+                    is_admin: user.is_admin || false
+                });
+                
+                if (registeredUser) {
+                    console.log('✅ [Profile] 사용자 백엔드 등록 성공');
+                    setBackendCttPoints(registeredUser.ctt_points || 0);
+                } else {
+                    throw new Error('사용자 등록 실패');
+                }
+            } else {
+                console.log('✅ [Profile] 백엔드에서 사용자 데이터 발견:', {
+                    score: backendUser.score,
+                    ctt_points: backendUser.ctt_points
+                });
+                
+                // 2. 백엔드 데이터로 상태 업데이트
+                setBackendCttPoints(backendUser.ctt_points || 0);
+                
+                // 3. localStorage도 백엔드 데이터로 동기화
+                const rawUsers = localStorage.getItem('catena_users');
+                if (rawUsers) {
+                    const localUsers = JSON.parse(rawUsers);
+                    const userIndex = localUsers.findIndex(u => u.email === user.email);
+                    
+                    if (userIndex !== -1) {
+                        // 백엔드 데이터가 더 최신이면 localStorage 업데이트
+                        if (backendUser.score > localUsers[userIndex].score || 
+                            backendUser.ctt_points > localUsers[userIndex].ctt_points) {
+                            
+                            localUsers[userIndex] = {
+                                ...localUsers[userIndex],
+                                score: Math.max(backendUser.score || 0, localUsers[userIndex].score || 0),
+                                ctt_points: Math.max(backendUser.ctt_points || 0, localUsers[userIndex].ctt_points || 0),
+                                updated_at: new Date().toISOString(),
+                                synced_with_backend: true
+                            };
+                            
+                            localStorage.setItem('catena_users', JSON.stringify(localUsers));
+                            console.log('✅ [Profile] localStorage 동기화 완료');
+                        }
+                    }
+                }
+                
+                // 4. 통계 데이터 다시 계산
+                await recalculateStats();
+            }
+            
+        } catch (error) {
+            console.error('💥 [Profile] 백엔드 동기화 실패:', error);
+            throw error;
+        }
+    };
+    
+    // 📈 통계 데이터 재계산
+    const recalculateStats = async () => {
+        try {
+            const predictions = await Prediction.filter({ user_id: user.id }, '-created_date');
+            const totalPredictions = predictions.length;
+            const correctPredictions = predictions.filter(p => p.is_correct).length;
+            const winRate = totalPredictions > 0 ? (correctPredictions / totalPredictions * 100) : 0;
+            
+            // 연승 계산
+            let currentStreak = 0;
+            let bestStreak = 0;
+            predictions.slice().reverse().forEach(p => {
+                if (p.is_correct) {
+                    currentStreak++;
+                } else {
+                    bestStreak = Math.max(bestStreak, currentStreak);
+                    currentStreak = 0;
+                }
+            });
+            bestStreak = Math.max(bestStreak, currentStreak);
+            
+            setStats(prevStats => ({
+                ...prevStats,
+                totalPredictions,
+                correctPredictions,
+                winRate: winRate.toFixed(1),
+                bestStreak
+            }));
+            
+            console.log('📈 [Profile] 통계 재계산 완료:', {
+                totalPredictions,
+                correctPredictions,
+                winRate: winRate.toFixed(1),
+                bestStreak
+            });
+            
+        } catch (error) {
+            console.error('💥 [Profile] 통계 재계산 실패:', error);
+        }
+    };
+
+    // 수동 새로고침 핸들러 (기존)
     const handleRefreshCttPoints = async () => {
+        // 기존 함수는 약한 동기화만 시도
         await fetchBackendCttPoints();
     };
 
@@ -350,8 +504,19 @@ export default function ProfilePage() {
                                     variant="ghost"
                                     size="sm"
                                     className="p-1 h-auto text-cyan-400 hover:text-cyan-300"
+                                    title="약한 새로고침"
                                 >
                                     <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                </Button>
+                                <Button
+                                    onClick={handleForceWakeupAndSync}
+                                    disabled={isRefreshing}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="p-1 h-auto text-yellow-400 hover:text-yellow-300"
+                                    title="강력한 서버 깨우기 + 데이터 동기화"
+                                >
+                                    🚀
                                 </Button>
                             </div>
                             <p className="text-2xl font-bold text-white">{formatCttPoints(backendCttPoints)}</p>
