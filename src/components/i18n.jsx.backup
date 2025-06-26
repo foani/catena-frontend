@@ -1,0 +1,454 @@
+// ?¤êµ­???ìŠ¤???•ì˜
+const translations = {
+    en: {
+        // ?¤ë¹„ê²Œì´??        mission: 'Mission',
+        game: 'Game',`n        multiplayer: 'Multiplayer',
+        ranking: 'Ranking',
+        airdrop: 'Airdrop',
+        profile: 'Profile',
+        
+        // ê²Œì„ ?˜ì´ì§€
+        authentication_required: 'Authentication Required',
+        login_to_play_game: 'Please log in to play the game.',
+        game_current_price: 'Current Price',
+        round_end_countdown: 'Round ends in {seconds}s',
+        checking_results: 'Checking results...',
+        loading_price_data: 'Loading price data...',
+        failed_to_load_data_retry: 'Failed to load data. Please try changing the coin or refresh.',
+        game_predict_up: 'UP',
+        game_predict_down: 'DOWN',
+        wait_for_round_end: 'Wait for the round to end.',
+        correct_prediction_cta: 'Correct! +{cta} CTT',
+        incorrect_prediction: 'Incorrect!',
+        actual_result: 'Actual Result',
+        game_how_to_play: 'How to Play',
+        game_instructions: 'Predict whether the selected cryptocurrency price will go UP or DOWN within the chosen time. Get points for correct predictions!',
+        game_tip: '?’¡ Tip: Try different coins for various prediction games!',
+        bet_amount: 'Bet Amount',
+        min_bet_label: 'Min',
+        max_bet_label: 'Max',
+        potential_winnings: 'Potential Winnings',
+        insufficient_balance: 'Insufficient CTT points.',
+        daily_games_left: 'Daily games left',
+        ctt_points: 'CTT Points',
+        daily_games_exhausted_alert: 'You have reached the daily game limit (5 games). Please try again tomorrow.',
+        you_won: 'You Won!',
+        you_lost: 'You Lost',
+        next_round: 'Next Round',
+        round_ended: 'Round Ended',
+        no_bet_placed: 'No bet was placed.',
+        
+        // ê²Œì„ ëª¨ë“œ
+        quick_game: 'Quick Game',
+        standard_game: 'Standard',
+        extended_game: 'Extended',
+        pro_mode: 'Pro Mode',
+        expert_mode: 'Expert',
+        
+        // ë¯¸ì…˜ ?˜ì´ì§€
+        mission_title: 'Mission',
+        mission_description: 'Complete missions to earn points and rewards',
+        mission_progress: 'missions completed',
+        mission_game_start: 'Start Game',
+        mission_complete_all: 'Complete all missions to unlock the game',
+        mission_wallet_install: 'Install Creata Wallet',
+        mission_website_visit: 'Visit Website',
+        mission_wallet_description: 'Download Creata Wallet from Google Play Store',
+        mission_website_description: 'Visit Creata Chain website for 10 seconds',
+        mission_auto_complete_note: 'Will be completed automatically after installation',
+        mission_install: 'Install',
+        mission_visit: 'Visit',
+        points_text: 'points',
+        seconds_text: 's',
+        
+        // ?„ë¡œ???˜ì´ì§€
+        edit_profile: 'Edit Profile',
+        profile_name: 'Name',
+        save: 'Save',
+        cancel: 'Cancel',
+        total_score_profile: 'Total Score',
+        win_rate_profile: 'Win Rate',
+        best_streak_profile: 'Best Streak',
+        cta_balance: 'CTA Balance',
+        received_cta: 'Total CTA Received',
+        prediction_performance: 'Prediction Performance',
+        coin_performance: 'Coin Performance',
+        correct_answer: 'Correct',
+        wrong_answer: 'Wrong',
+        google_account: 'Google Account',
+        kakao_account: 'Kakao Account',
+        email_account: 'Email Account',
+        
+        // ??‚¹ ?˜ì´ì§€
+        my_rank: 'My Rank',
+        total_participants: 'Total Participants',
+        my_score: 'My Score',
+        reward_system: 'Reward System',
+        ranking_title: 'RANKING',
+        rank: 'Rank',
+        user: 'User',
+        score: 'Score',
+        predictions: 'Predictions',
+        expected_reward: 'Expected Reward',
+        no_rankers_yet: 'No rankers yet',
+        me_badge: 'ME',
+        
+        // ë¡œê·¸??        login_title: 'Welcome to CREATA',
+        login_description: 'Join the crypto prediction game',
+        login_wallet_auto: 'Wallet created automatically',
+        login_google: 'Continue with Google',
+        login_kakao: 'Continue with Kakao',
+        login_wallet_gen: 'Auto Wallet',
+        login_secure: 'Secure',
+        login_instant: 'Instant',
+        login_terms: 'By continuing, you agree to our Terms of Service'
+    },
+    ko: {
+        // ?¤ë¹„ê²Œì´??        mission: 'ë¯¸ì…˜',
+        game: 'ê²Œì„',
+        ranking: '??‚¹',
+        airdrop: '?ì–´?œë¡­',
+        profile: '?„ë¡œ??,
+        
+        // ê²Œì„ ?˜ì´ì§€
+        authentication_required: '?¸ì¦ ?„ìš”',
+        login_to_play_game: 'ê²Œì„??ì°¸ì—¬?˜ë ¤ë©?ë¡œê·¸?¸í•´ì£¼ì„¸??',
+        game_current_price: '?„ì¬ ê°€ê²?,
+        round_end_countdown: '?¼ìš´??ì¢…ë£Œê¹Œì? {seconds}ì´?,
+        checking_results: 'ê²°ê³¼ ?•ì¸ ì¤?..',
+        loading_price_data: 'ê°€ê²??°ì´??ë¡œë”© ì¤?..',
+        failed_to_load_data_retry: '?°ì´??ë¡œë“œ ?¤íŒ¨. ì½”ì¸??ë³€ê²½í•˜ê±°ë‚˜ ?ˆë¡œê³ ì¹¨?˜ì„¸??',
+        game_predict_up: '?ìŠ¹',
+        game_predict_down: '?˜ë½',
+        wait_for_round_end: '?¼ìš´??ì¢…ë£Œë¥?ê¸°ë‹¤?¤ì£¼?¸ìš”.',
+        correct_prediction_cta: '?•ë‹µ! +{cta} CTT',
+        incorrect_prediction: '?¤ë‹µ?…ë‹ˆ??,
+        actual_result: '?¤ì œ ê²°ê³¼',
+        game_how_to_play: 'ê²Œì„ ë°©ë²•',
+        game_instructions: '? íƒ???œê°„ ?ˆì— ?”í˜¸?”í ê°€ê²©ì´ ?¤ë?ì§€(UP) ?´ë¦´ì§€(DOWN) ?ˆì¸¡?˜ì„¸?? ë§ì¶”ë©??ìˆ˜ë¥??»ìŠµ?ˆë‹¤!',
+        game_tip: '?’¡ ?? ?¤ë¥¸ ì½”ì¸??? íƒ?´ì„œ ?¤ì–‘???ˆì¸¡ ê²Œì„??ì¦ê²¨ë³´ì„¸??',
+        bet_amount: 'ë² íŒ… ê¸ˆì•¡',
+        min_bet_label: 'ìµœì†Œ',
+        max_bet_label: 'ìµœë?',
+        potential_winnings: '?ˆìƒ ?˜ìµ',
+        insufficient_balance: 'CTT ?¬ì¸?¸ê? ë¶€ì¡±í•©?ˆë‹¤.',
+        daily_games_left: '?¤ëŠ˜ ?¨ì? ê²Œì„ ?Ÿìˆ˜',
+        ctt_points: 'CTT ?¬ì¸??,
+        daily_games_exhausted_alert: '?¤ëŠ˜??ê²Œì„ ?Ÿìˆ˜(5??ë¥?ëª¨ë‘ ?Œì§„?ˆìŠµ?ˆë‹¤. ?´ì¼ ?¤ì‹œ ?œë„?´ì£¼?¸ìš”.',
+        you_won: '?¹ë¦¬!',
+        you_lost: '?¨ë°°',
+        next_round: '?¤ìŒ ?¼ìš´??,
+        round_ended: '?¼ìš´??ì¢…ë£Œ',
+        no_bet_placed: 'ë² íŒ…?˜ì? ?Šì•˜?µë‹ˆ??',
+
+        // ê²Œì„ ëª¨ë“œ
+        quick_game: '??ê²Œì„',
+        standard_game: '?¤íƒ ?¤ë“œ',
+        extended_game: '?•ì¥ ê²Œì„',
+        pro_mode: '?„ë¡œ ëª¨ë“œ',
+        expert_mode: '?µìŠ¤?¼íŠ¸',
+
+        // ë¯¸ì…˜ ?˜ì´ì§€
+        mission_title: 'ë¯¸ì…˜',
+        mission_description: 'ë¯¸ì…˜???„ë£Œ?˜ì—¬ ?¬ì¸?¸ì? ë³´ìƒ???ë“?˜ì„¸??,
+        mission_progress: 'ë¯¸ì…˜ ?„ë£Œ',
+        mission_game_start: 'ê²Œì„ ?œì‘',
+        mission_complete_all: 'ëª¨ë“  ë¯¸ì…˜???„ë£Œ?˜ì—¬ ê²Œì„??? ê¸ˆ?´ì œ?˜ì„¸??,
+        mission_wallet_install: 'Creata Wallet ?¤ì¹˜',
+        mission_website_visit: '?ˆí˜?´ì? ë°©ë¬¸',
+        mission_wallet_description: 'Google Play Store?ì„œ Creata Wallet???¤ìš´ë¡œë“œ?˜ì„¸??,
+        mission_website_description: 'Creata Chain ?ˆí˜?´ì?ë¥?10ì´ˆê°„ ë°©ë¬¸?˜ì„¸??,
+        mission_auto_complete_note: '?¤ì¹˜ ???ë™?¼ë¡œ ?„ë£Œ?©ë‹ˆ??,
+        mission_install: '?¤ì¹˜?˜ê¸°',
+        mission_visit: 'ë°©ë¬¸?˜ê¸°',
+        points_text: '?¬ì¸??,
+        seconds_text: 'ì´?,
+        
+        // ?„ë¡œ???˜ì´ì§€
+        edit_profile: '?„ë¡œ???˜ì •',
+        profile_name: '?´ë¦„',
+        save: '?€??,
+        cancel: 'ì·¨ì†Œ',
+        total_score_profile: 'ì´??ìˆ˜',
+        win_rate_profile: '?¹ë¥ ',
+        best_streak_profile: 'ìµœê³  ?°ìŠ¹',
+        cta_balance: 'CTA ?”ì•¡',
+        received_cta: 'ë°›ì? ì´?CTA',
+        prediction_performance: '?ˆì¸¡ ?±ê³¼',
+        coin_performance: 'ì½”ì¸ë³??±ê³¼',
+        correct_answer: '?•ë‹µ',
+        wrong_answer: '?¤ë‹µ',
+        google_account: 'êµ¬ê? ê³„ì •',
+        kakao_account: 'ì¹´ì¹´??ê³„ì •',
+        email_account: '?´ë©”??ê³„ì •',
+        
+        // ??‚¹ ?˜ì´ì§€
+        my_rank: '???œìœ„',
+        total_participants: 'ì´?ì°¸ê???,
+        my_score: '???ìˆ˜',
+        reward_system: 'ë³´ìƒ ?œìŠ¤??,
+        ranking_title: '??‚¹',
+        rank: '?œìœ„',
+        user: '?¬ìš©??,
+        score: '?ìˆ˜',
+        predictions: '?ˆì¸¡ ?Ÿìˆ˜',
+        expected_reward: '?ˆìƒ ë³´ìƒ',
+        no_rankers_yet: '?„ì§ ??»¤ê°€ ?†ìŠµ?ˆë‹¤',
+        me_badge: '??,
+        
+        // ë¡œê·¸??        login_title: 'CREATA???¤ì‹  ê±??˜ì˜?©ë‹ˆ??,
+        login_description: '?”í˜¸?”í ?ˆì¸¡ ê²Œì„??ì°¸ì—¬?˜ì„¸??,
+        login_wallet_auto: 'ì§€ê°??ë™ ?ì„±',
+        login_google: 'Googleë¡?ê³„ì†?˜ê¸°',
+        login_kakao: 'Kakaoë¡?ê³„ì†?˜ê¸°',
+        login_wallet_gen: '?ë™ ì§€ê°?,
+        login_secure: 'ë³´ì•ˆ',
+        login_instant: 'ì¦‰ì‹œ',
+        login_terms: 'ê³„ì†?˜ë©´ ?œë¹„???½ê????™ì˜?˜ê²Œ ?©ë‹ˆ??
+    },
+    vi: {
+        // ?¤ë¹„ê²Œì´??        mission: 'Nhiá»‡m vá»?,
+        game: 'TrÃ² chÆ¡i',
+        ranking: 'Xáº¿p háº¡ng',
+        airdrop: 'Airdrop',
+        profile: 'Há»?sÆ¡',
+        
+        // ê²Œì„ ?˜ì´ì§€
+        authentication_required: 'YÃªu cáº§u xÃ¡c thá»±c',
+        login_to_play_game: 'Vui lÃ²ng Ä‘Äƒng nháº­p Ä‘á»?chÆ¡i game.',
+        game_current_price: 'GiÃ¡ hiá»‡n táº¡i',
+        round_end_countdown: 'VÃ²ng káº¿t thÃºc sau {seconds}s',
+        checking_results: 'Äang kiá»ƒm tra káº¿t quáº?..',
+        loading_price_data: 'Äang táº£i dá»?liá»‡u giÃ¡...',
+        failed_to_load_data_retry: 'Táº£i dá»?liá»‡u tháº¥t báº¡i. Vui lÃ²ng thay Ä‘á»•i coin hoáº·c lÃ m má»›i.',
+        game_predict_up: 'TÄ‚NG',
+        game_predict_down: 'GIáº¢M',
+        wait_for_round_end: 'Chá»?vÃ²ng káº¿t thÃºc.',
+        correct_prediction_cta: 'ÄÃºng! +{cta} CTT',
+        incorrect_prediction: 'Sai!',
+        actual_result: 'Káº¿t quáº?thá»±c táº?,
+        game_how_to_play: 'CÃ¡ch chÆ¡i',
+        game_instructions: 'Dá»?Ä‘oÃ¡n giÃ¡ tiá»n Ä‘iá»‡n tá»?sáº?TÄ‚NG hay GIáº¢M trong thá»i gian Ä‘Ã£ chá»n. Nháº­n Ä‘iá»ƒm khi dá»?Ä‘oÃ¡n Ä‘Ãºng!',
+        game_tip: '?’¡ Máº¹o: Thá»?cÃ¡c coin khÃ¡c Ä‘á»?cÃ³ tráº£i nghiá»‡m dá»?Ä‘oÃ¡n Ä‘a dáº¡ng!',
+        bet_amount: 'Sá»?tiá»n cÆ°á»£c',
+        min_bet_label: 'Tá»‘i thiá»ƒu',
+        max_bet_label: 'Tá»‘i Ä‘a',
+        potential_winnings: 'Tiá»n tháº¯ng tiá»m nÄƒng',
+        insufficient_balance: 'KhÃ´ng Ä‘á»?Ä‘iá»ƒm CTT.',
+        daily_games_left: 'Sá»?game cÃ²n láº¡i hÃ´m nay',
+        ctt_points: 'Äiá»ƒm CTT',
+        daily_games_exhausted_alert: 'Báº¡n Ä‘Ã£ Ä‘áº¡t giá»›i háº¡n game hÃ ng ngÃ y (5 game). Vui lÃ²ng thá»?láº¡i vÃ o ngÃ y mai.',
+        you_won: 'Báº¡n tháº¯ng!',
+        you_lost: 'Báº¡n thua',
+        next_round: 'VÃ²ng tiáº¿p theo',
+        round_ended: 'VÃ²ng Ä‘Ã£ káº¿t thÃºc',
+        no_bet_placed: 'KhÃ´ng cÃ³ cÆ°á»£c nÃ o Ä‘Æ°á»£c Ä‘áº·t.',
+
+        // ê²Œì„ ëª¨ë“œ
+        quick_game: 'Game nhanh',
+        standard_game: 'TiÃªu chuáº©n',
+        extended_game: 'Má»?rá»™ng',
+        pro_mode: 'Cháº?Ä‘á»?Pro',
+        expert_mode: 'ChuyÃªn gia',
+
+        // ë¯¸ì…˜ ?˜ì´ì§€
+        mission_title: 'Nhiá»‡m vá»?,
+        mission_description: 'HoÃ n thÃ nh nhiá»‡m vá»?Ä‘á»?kiáº¿m Ä‘iá»ƒm vÃ  pháº§n thÆ°á»Ÿng',
+        mission_progress: 'nhiá»‡m vá»?Ä‘Ã£ hoÃ n thÃ nh',
+        mission_game_start: 'Báº¯t Ä‘áº§u Game',
+        mission_complete_all: 'HoÃ n thÃ nh táº¥t cáº?nhiá»‡m vá»?Ä‘á»?má»?khÃ³a game',
+        mission_wallet_install: 'CÃ i Ä‘áº·t Creata Wallet',
+        mission_website_visit: 'Truy cáº­p Website',
+        mission_wallet_description: 'Táº£i Creata Wallet tá»?Google Play Store',
+        mission_website_description: 'Truy cáº­p website Creata Chain trong 10 giÃ¢y',
+        mission_auto_complete_note: 'Sáº?Ä‘Æ°á»£c hoÃ n thÃ nh tá»?Ä‘á»™ng sau khi cÃ i Ä‘áº·t',
+        mission_install: 'CÃ i Ä‘áº·t',
+        mission_visit: 'Truy cáº­p',
+        points_text: 'Ä‘iá»ƒm',
+        seconds_text: 's',
+        
+        // ?„ë¡œ???˜ì´ì§€
+        edit_profile: 'Chá»‰nh sá»­a há»?sÆ¡',
+        profile_name: 'TÃªn',
+        save: 'LÆ°u',
+        cancel: 'Há»§y',
+        total_score_profile: 'Tá»•ng Ä‘iá»ƒm',
+        win_rate_profile: 'Tá»?lá»?tháº¯ng',
+        best_streak_profile: 'Chuá»—i tháº¯ng tá»‘t nháº¥t',
+        cta_balance: 'Sá»?dÆ° CTA',
+        received_cta: 'Tá»•ng CTA Ä‘Ã£ nháº­n',
+        prediction_performance: 'Hiá»‡u suáº¥t dá»?Ä‘oÃ¡n',
+        coin_performance: 'Hiá»‡u suáº¥t theo coin',
+        correct_answer: 'ÄÃºng',
+        wrong_answer: 'Sai',
+        google_account: 'TÃ i khoáº£n Google',
+        kakao_account: 'TÃ i khoáº£n Kakao',
+        email_account: 'TÃ i khoáº£n Email',
+        
+        // ??‚¹ ?˜ì´ì§€
+        my_rank: 'Háº¡ng cá»§a tÃ´i',
+        total_participants: 'Tá»•ng ngÆ°á»i tham gia',
+        my_score: 'Äiá»ƒm cá»§a tÃ´i',
+        reward_system: 'Há»?thá»‘ng pháº§n thÆ°á»Ÿng',
+        ranking_title: 'Xáº¾P Háº NG',
+        rank: 'Háº¡ng',
+        user: 'NgÆ°á»i dÃ¹ng',
+        score: 'Äiá»ƒm',
+        predictions: 'Dá»?Ä‘oÃ¡n',
+        expected_reward: 'Pháº§n thÆ°á»Ÿng dá»?kiáº¿n',
+        no_rankers_yet: 'ChÆ°a cÃ³ ngÆ°á»i xáº¿p háº¡ng',
+        me_badge: 'TÃ”I',
+        
+        // ë¡œê·¸??        login_title: 'ChÃ o má»«ng Ä‘áº¿n CREATA',
+        login_description: 'Tham gia game dá»?Ä‘oÃ¡n tiá»n Ä‘iá»‡n tá»?,
+        login_wallet_auto: 'VÃ­ Ä‘Æ°á»£c táº¡o tá»?Ä‘á»™ng',
+        login_google: 'Tiáº¿p tá»¥c vá»›i Google',
+        login_kakao: 'Tiáº¿p tá»¥c vá»›i Kakao',
+        login_wallet_gen: 'VÃ­ tá»?Ä‘á»™ng',
+        login_secure: 'Báº£o máº­t',
+        login_instant: 'Tá»©c thÃ¬',
+        login_terms: 'Báº±ng cÃ¡ch tiáº¿p tá»¥c, báº¡n Ä‘á»“ng Ã½ vá»›i Äiá»u khoáº£n Dá»‹ch vá»?cá»§a chÃºng tÃ´i'
+    },
+    ja: {
+        // ?¤ë¹„ê²Œì´??        mission: '?Ÿãƒƒ?·ãƒ§??,
+        game: '?²ãƒ¼??,
+        ranking: '?©ãƒ³??ƒ³??,
+        airdrop: '?¨ã‚¢?‰ãƒ­?ƒãƒ—',
+        profile: '?—ãƒ­?•ã‚£?¼ãƒ«',
+        
+        // ê²Œì„ ?˜ì´ì§€
+        authentication_required: 'èªè¨¼?Œå¿…è¦ã§??,
+        login_to_play_game: '?²ãƒ¼? ã«?‚åŠ ?™ã‚‹?«ã¯??‚°?¤ãƒ³?—ã¦?ã ?•ã„??,
+        game_current_price: '?¾åœ¨ä¾¡æ ¼',
+        round_end_countdown: '?©ã‚¦?³ãƒ‰çµ‚äº†?¾ã§{seconds}ç§?,
+        checking_results: 'çµæœ?’ç¢ºèªä¸­...',
+        loading_price_data: 'ä¾¡æ ¼?‡ãƒ¼?¿ã‚’èª?¿è¾¼ã¿ä¸?..',
+        failed_to_load_data_retry: '?‡ãƒ¼?¿ã®èª?¿è¾¼ã¿?«å¤±?—ã—?¾ã—?Ÿã€‚ã‚³?¤ãƒ³?’å¤‰?´ã™?‹ã‹?´æ–°?—ã¦?ã ?•ã„??,
+        game_predict_up: 'ä¸Šæ˜‡',
+        game_predict_down: 'ä¸‹é™',
+        wait_for_round_end: '?©ã‚¦?³ãƒ‰??µ‚äº†ã‚’?Šå¾…?¡ã? ã•?„ã€?,
+        correct_prediction_cta: 'æ­£è§£ï¼?{cta} CTT',
+        incorrect_prediction: 'ä¸æ?è§£ã§??,
+        actual_result: 'å®Ÿéš›??µ??,
+        game_how_to_play: '?²ãƒ¼? ã®?Šã³??,
+        game_instructions: '?¸æŠ?—ãŸ?‚é–“?…ã«?—å·?šè²¨??¾¡?¼ãŒä¸ŠãŒ?‹ã‹ï¼ˆUPï¼‰ä¸‹?Œã‚‹?‹ï¼ˆDOWNï¼‰ã‚’äºˆæ¸¬?—ã¦?ã ?•ã„?‚æ?è§£ã™?‹ã¨?ã‚¤?³ãƒˆ?Œã‚‚?‰ãˆ?¾ã™ï¼?,
+        game_tip: '?’¡ ?’ãƒ³?ˆï¼š?°ãª?‹ã‚³?¤ãƒ³?’é¸?ã—??§˜?…ãªäºˆæ¸¬?²ãƒ¼? ã‚’æ¥½ã—?“ã§?ã ?•ã„ï¼?,
+        bet_amount: '?™ãƒƒ?ˆé‡‘é¡?,
+        min_bet_label: '?€å°?,
+        max_bet_label: '?€å¤?,
+        potential_winnings: 'äºˆæƒ³?²å¾—é¡?,
+        insufficient_balance: 'CTT?ã‚¤?³ãƒˆ?Œä¸è¶³ã—?¦ã„?¾ã™??,
+        daily_games_left: 'ä»Šæ—¥??®‹?Šã‚²?¼ãƒ ??,
+        ctt_points: 'CTT?ã‚¤?³ãƒˆ',
+        daily_games_exhausted_alert: '1?¥ã®?²ãƒ¼? å›?°åˆ¶?ï¼ˆ5?ï¼‰?«é”?—ã¾?—ãŸ?‚æ˜?¥å†åº¦ãŠè©¦ã—?ã ?•ã„??,
+        you_won: '?åˆ©ï¼?,
+        you_lost: '?—åŒ—',
+        next_round: 'æ¬¡ã®?©ã‚¦?³ãƒ‰',
+        round_ended: '?©ã‚¦?³ãƒ‰çµ‚äº†',
+        no_bet_placed: '?™ãƒƒ?ˆãŒè¡Œã‚?Œã¾?›ã‚“?§ã—?Ÿã€?,
+
+        // ê²Œì„ ëª¨ë“œ
+        quick_game: '??‚¤?ƒã‚¯?²ãƒ¼??,
+        standard_game: '?¹ã‚¿?³ã??¼ãƒ‰',
+        extended_game: '?¡å¼µ?²ãƒ¼??,
+        pro_mode: '?—ãƒ­?¢ãƒ¼??,
+        expert_mode: '?¨ã‚­?¹ãƒ‘?¼ãƒˆ',
+
+        // ë¯¸ì…˜ ?˜ì´ì§€
+        mission_title: '?Ÿãƒƒ?·ãƒ§??,
+        mission_description: '?Ÿãƒƒ?·ãƒ§?³ã‚’å®Œäº†?—ã¦?ã‚¤?³ãƒˆ?¨å ±?¬ã‚’?²å¾—?—ã¾?—ã‚‡??,
+        mission_progress: '?Ÿãƒƒ?·ãƒ§?³å®Œäº?,
+        mission_game_start: '?²ãƒ¼? é–‹å§?,
+        mission_complete_all: '?™ã¹?¦ã®?Ÿãƒƒ?·ãƒ§?³ã‚’å®Œäº†?—ã¦?²ãƒ¼? ã®??ƒƒ??‚’è§£é™¤?—ã¦?ã ?•ã„',
+        mission_wallet_install: 'Creata Wallet?’ã‚¤?³ã‚¹?ˆãƒ¼??,
+        mission_website_visit: '?¦ã‚§?–ã‚µ?¤ãƒˆè¨ªå•',
+        mission_wallet_description: 'Google Play Store?‹ã‚‰Creata Wallet?’ã??¦ãƒ³??ƒ¼?‰ã—?¦ã? ã•??,
+        mission_website_description: 'Creata Chain?¦ã‚§?–ã‚µ?¤ãƒˆ??0ç§’é–“è¨ªå•?—ã¦?ã ?•ã„',
+        mission_auto_complete_note: '?¤ãƒ³?¹ãƒˆ?¼ãƒ«å¾Œã«?ªå‹•?„ã«å®Œäº†?•ã‚Œ?¾ã™',
+        mission_install: '?¤ãƒ³?¹ãƒˆ?¼ãƒ«',
+        mission_visit: 'è¨ªå•',
+        points_text: '?ã‚¤?³ãƒˆ',
+        seconds_text: 'ç§?,
+        
+        // ?„ë¡œ???˜ì´ì§€
+        edit_profile: '?—ãƒ­?•ã‚£?¼ãƒ«ç·¨é›†',
+        profile_name: '?å‰',
+        save: 'ä¿å­˜',
+        cancel: '??ƒ£?³ã‚»??,
+        total_score_profile: 'ç·ã‚¹?³ã‚¢',
+        win_rate_profile: '?ç‡',
+        best_streak_profile: '?€é«˜é€£å‹',
+        cta_balance: 'CTAæ®‹é«˜',
+        received_cta: '?—å–ç·CTA',
+        prediction_performance: 'äºˆæ¸¬?‘ãƒ•?©ãƒ¼?ãƒ³??,
+        coin_performance: '?³ã‚¤?³åˆ¥?‘ãƒ•?©ãƒ¼?ãƒ³??,
+        correct_answer: 'æ­£è§£',
+        wrong_answer: 'ä¸æ?è§?,
+        google_account: 'Google?¢ã‚«?¦ãƒ³??,
+        kakao_account: 'Kakao?¢ã‚«?¦ãƒ³??,
+        email_account: '?¡ãƒ¼?«ã‚¢?«ã‚¦?³ãƒˆ',
+        
+        // ??‚¹ ?˜ì´ì§€
+        my_rank: 'ç§ã®?©ãƒ³??,
+        total_participants: 'ç·å‚? è€…æ•°',
+        my_score: 'ç§ã®?¹ã‚³??,
+        reward_system: '?±é…¬?·ã‚¹?†ãƒ ',
+        ranking_title: '?©ãƒ³??ƒ³??,
+        rank: '?©ãƒ³??,
+        user: '?¦ãƒ¼?¶ãƒ¼',
+        score: '?¹ã‚³??,
+        predictions: 'äºˆæ¸¬?æ•°',
+        expected_reward: 'äºˆæƒ³?±é…¬',
+        no_rankers_yet: '?¾ã ?©ãƒ³?«ãƒ¼?Œã„?¾ã›??,
+        me_badge: 'ç§?,
+        
+        // ë¡œê·¸??        login_title: 'CREATA?¸ã‚ˆ?†ã“??,
+        login_description: '?—å·?šè²¨äºˆæ¸¬?²ãƒ¼? ã«?‚åŠ ?—ã¾?—ã‚‡??,
+        login_wallet_auto: '?¦ã‚©?¬ãƒƒ?ˆè‡ª?•ä½œ??,
+        login_google: 'Google?§ç¶šè¡?,
+        login_kakao: 'Kakao?§ç¶šè¡?,
+        login_wallet_gen: '?ªå‹•?¦ã‚©?¬ãƒƒ??,
+        login_secure: 'å®‰å…¨',
+        login_instant: '?³åº§',
+        login_terms: 'ç¶šè¡Œ?™ã‚‹?“ã¨?§ã€åˆ©?¨è¦ç´„ã«?Œæ„?—ãŸ?“ã¨?«ãª?Šã¾??
+    }
+};
+
+export const useTranslation = () => {
+    const getCurrentLanguage = () => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('catena_language') || 'en';
+        }
+        return 'en';
+    };
+    
+    const language = getCurrentLanguage();
+    
+    const t = (key, params = {}) => {
+        let translation = translations[language]?.[key] || translations['en']?.[key] || key;
+        
+        if (params && typeof params === 'object') {
+            Object.keys(params).forEach(paramKey => {
+                translation = translation.replace(`{${paramKey}}`, params[paramKey]);
+            });
+        }
+        
+        return translation;
+    };
+    
+    return { t, language };
+};
+
+export const getCurrentLanguage = () => {
+    if (typeof window !== 'undefined') {
+        return localStorage.getItem('catena_language') || 'en';
+    }
+    return 'en';
+};
+
+export const setLanguage = (language) => {
+    if (typeof window !== 'undefined') {
+        localStorage.setItem('catena_language', language);
+        window.location.reload(); // ?¸ì–´ ë³€ê²????˜ì´ì§€ ?ˆë¡œê³ ì¹¨
+    }
+};

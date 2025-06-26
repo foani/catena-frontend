@@ -1,0 +1,29 @@
+// Enhanced entities for betting 
+const storage = { bets: [], rounds: [], predictions: [], users: [] }; 
+const generateId = () => Date.now() + '_' + Math.random().toString(36).substr(2); 
+ 
+export class Bet { 
+  constructor(data = {}) { 
+    this.id = data.id || generateId(); 
+    this.user_id = data.user_id || data.userId; 
+    this.round_id = data.round_id || data.roundId;  
+    this.prediction_type = data.prediction_type || data.predictionType; 
+    this.bet_amount = data.bet_amount || data.betAmount || data.amount || 0; 
+    this.potential_win = data.potential_win || data.potentialWin || 0; 
+    Object.assign(this, data);  
+  } 
+  static create(data) { 
+    const bet = new Bet(data); 
+    storage.bets.push(bet); 
+    console.log('[Bet Created]', { id: bet.id, type: bet.prediction_type, amount: bet.bet_amount }); 
+    return bet;  
+  } 
+  static findById(id) { return storage.bets.find(b => b.id === id); } 
+  static filter() { return storage.bets; } 
+  static update(id, data) { const bet = Bet.findById(id); if (bet) Object.assign(bet, data); return bet; } 
+} 
+ 
+export class GameRound { constructor(data = {}) { this.id = generateId(); Object.assign(this, data); } static create(data) { const r = new GameRound(data); storage.rounds.push(r); return r; } static findById(id) { return storage.rounds.find(r => r.id === id); } static filter() { return storage.rounds; } static update(id, data) { const r = GameRound.findById(id); if (r) Object.assign(r, data); return r; } } 
+export class Prediction { constructor(data = {}) { this.id = generateId(); Object.assign(this, data); } static create(data) { const p = new Prediction(data); storage.predictions.push(p); return p; } static filter() { return storage.predictions; } static update() { return null; } } 
+export class User { constructor(data = {}) { this.id = generateId(); Object.assign(this, data); } static create(data) { const u = new User(data); storage.users.push(u); return u; } static findByWallet(addr) { return storage.users.find(u => u.walletAddress === addr); } static filter() { return storage.users; } } 
+ 
