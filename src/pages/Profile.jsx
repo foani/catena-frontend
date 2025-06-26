@@ -1,766 +1,650 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useGoogleLogin } from '@react-oauth/google';
-import { User } from '@/api/entities';
-import { ethers } from 'ethers';
-import { CATENA_NETWORKS } from './CatenaBlockchain';
-import { ServerAPI, HybridDataManager } from '@/api/serverAPI';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useWeb3Auth } from '@/components/Web3AuthProvider';
+import { Prediction } from '@/api/entities';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Wallet, Trophy, Target, TrendingUp, Edit, Save, X, Copy, LogIn, AlertCircle, RefreshCw } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { motion } from 'framer-motion';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import LanguageSelector from '@/components/LanguageSelector';
+import { useTranslation } from '@/components/i18n';
+import CatenaWallet from '@/components/CatenaWallet';
+import { ServerAPI, KeepAliveManager, HybridDataManager } from '@/api/serverAPI';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 
-const Web3AuthContext = createContext();
-
-export const useWeb3Auth = () => {
-    const context = useContext(Web3AuthContext);
-    if (!context) {
-        throw new Error('useWeb3Auth must be used within Web3AuthProvider');
-    }
-    return context;
-};
-
-// 🚀 실제 Google OAuth + 개발자 로그인 통합 시스템 (영구적 지갑 + 포인트 보존)
-export default function Web3AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
+export default function ProfilePage() {
+    const { user, updateUserData } = useWeb3Auth();
     const [isLoading, setIsLoading] = useState(true);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [authChecked, setAuthChecked] = useState(false);
-
+    const [isEditing, setIsEditing] = useState(false);
+    const [editForm, setEditForm] = useState({ full_name: '' });
+    const [ctaBalance, setCTABalance] = useState(0);
+    const [backendCttPoints, setBackendCttPoints] = useState(0);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [stats, setStats] = useState({
+        totalPredictions: 0,
+        correctPredictions: 0,
+        winRate: 0,
+        bestStreak: 0,
+        coinStats: []
+    });
+    const [privateKeyVisible, setPrivateKeyVisible] = useState(false);
+    const { t } = useTranslation();
+    
+    // 🔧 메모리 누수 방지: useRef로 최신 값 참조
+    const userRef = useRef(user);
+    const backendCttPointsRef = useRef(backendCttPoints);
+    
+    // 최신 값으로 ref 업데이트
     useEffect(() => {
-        checkAuthStatus();
+        userRef.current = user;
+    }, [user]);
+    
+    useEffect(() => {
+        backendCttPointsRef.current = backendCttPoints;
+    }, [backendCttPoints]);
+
+    // 🔧 부동소수점 오류 수정: CTT 포인트 깔끔하게 표시하는 함수
+    const formatCttPoints = useCallback((points) => {
+        if (!points && points !== 0) return '0';
+        
+        const num = Number(points);
+        if (isNaN(num)) return '0';
+        
+        // 정수면 정수로 표시, 소수면 최대 2자리까지 표시
+        if (Number.isInteger(num)) {
+            return num.toString();
+        } else {
+            // 소수점 2자리까지 표시하고 불필요한 0 제거
+            return parseFloat(num.toFixed(2)).toString();
+        }
     }, []);
 
-    // 🎯 사용자별 고유 지갑 생성 (deterministic) - 영구적 지갑 주소
-    const generateUserSpecificWallet = async (userEmail, userProvider, userId) => {
+    // 🔧 최적화: 단일 사용자 조회로 변경
+    const fetchBackendCttPoints = useCallback(async () => {
+        if (!userRef.current?.email) return;
+        
+        setIsRefreshing(true);
         try {
-            console.log('[generateUserSpecificWallet] Creating permanent wallet for user:', userEmail);
+            console.log('[Profile] 백엔드에서 최신 CTT 포인트 조회:', userRef.current.email);
             
-            // 1. 사용자별 고유 seed 생성
-            const userSeed = `${userEmail}-${userProvider}-${userId}-catena-wallet-2025`;
-            console.log('- User seed created (length):', userSeed.length);
-            
-            // 2. seed를 해시하여 entropy 생성
-            const encoder = new TextEncoder();
-            const data = encoder.encode(userSeed);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            const hashArray = new Uint8Array(hashBuffer);
-            
-            // 3. 해시를 16진수 문자열로 변환
-            const entropy = Array.from(hashArray)
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-            
-            console.log('- Entropy generated (32 bytes):', entropy.substring(0, 20) + '...');
-            
-            // 4. entropy로 지갑 생성 (deterministic)
-            const wallet = new ethers.Wallet('0x' + entropy);
-            
-            console.log('[generateUserSpecificWallet] ✅ Deterministic wallet created:');
-            console.log('- Permanent Address:', wallet.address);
-            console.log('- Same user = Same address forever');
-            
-            // 5. Catena 네트워크 연결 시도
-            let connectedWallet = null;
-            let networkInfo = null;
-            
-            try {
-                const provider = new ethers.JsonRpcProvider(CATENA_NETWORKS.testnet.rpcUrl);
-                connectedWallet = wallet.connect(provider);
-                
-                // 네트워크 연결 테스트 (타임아웃 설정)
-                const networkPromise = provider.getNetwork();
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Network connection timeout')), 5000)
-                );
-                
-                networkInfo = await Promise.race([networkPromise, timeoutPromise]);
-                
-                console.log('[generateUserSpecificWallet] Connected to Catena network:', {
-                    name: networkInfo.name,
-                    chainId: Number(networkInfo.chainId)
-                });
-                
-            } catch (networkError) {
-                console.warn('[generateUserSpecificWallet] Network connection failed, using offline wallet:', networkError.message);
-            }
-            
-            // 6. 사용자별 고유 니모닉 생성 (deterministic)
-            const deterministicMnemonic = generateDeterministicMnemonic(userSeed);
-            
-            const walletData = {
-                address: wallet.address,
-                privateKey: wallet.privateKey,
-                mnemonic: deterministicMnemonic,
-                network: 'catena',
-                balance: '0',
-                created_at: new Date().toISOString(),
-                isReal: true,
-                isDeterministic: true, // 사용자별 고유 지갑임을 표시
-                provider: connectedWallet ? 'connected' : 'offline',
-                networkInfo: networkInfo ? {
-                    name: networkInfo.name,
-                    chainId: Number(networkInfo.chainId)
-                } : null
-            };
-            
-            console.log('[generateUserSpecificWallet] ✅ Permanent Catena wallet created successfully');
-            console.log('- This address will NEVER change for this user');
-            console.log('- Wallet is real:', walletData.isReal);
-            
-            return walletData;
-            
-        } catch (error) {
-            console.error('[generateUserSpecificWallet] Error creating deterministic wallet:', error);
-            
-            // fallback: 사용자별 고유하지만 간단한 방식
-            console.warn('[generateUserSpecificWallet] Using fallback deterministic method');
-            
-            const simpleHash = await simpleHashFunction(userEmail + userProvider + userId);
-            const address = '0x' + simpleHash.substring(0, 40);
-            const privateKey = '0x' + simpleHash.substring(40, 104);
-            
-            return {
-                address,
-                privateKey,
-                mnemonic: generateDeterministicMnemonic(userEmail),
-                network: 'catena',
-                balance: '0',
-                created_at: new Date().toISOString(),
-                isReal: false,
-                isDeterministic: true,
-                provider: 'fallback',
-                error: error.message
-            };
-        }
-    };
-
-    // 🔄 기존 지갑 확인 및 업그레이드 함수 (영구적 지갑 보장)
-    const upgradeUserWalletIfNeeded = async (user) => {
-        try {
-            console.log('[Wallet Upgrade] Checking wallet for user:', user.email);
-            
-            // 1. 이미 유효한 지갑을 가지고 있는지 확인
-            if (user.wallet_address && 
-                user.wallet_address.length === 42 && 
-                user.wallet_address.startsWith('0x') &&
-                user.private_key &&
-                user.private_key.length >= 64 &&
-                !user.private_key.includes('시뮬')) {
-                
-                console.log('[Wallet Upgrade] User has valid wallet, checking if deterministic...');
-                
-                // 기존 지갑이 deterministic인지 확인
-                const expectedWallet = await generateUserSpecificWallet(
-                    user.email, 
-                    user.provider || 'unknown', 
-                    user.id
-                );
-                
-                if (expectedWallet.address === user.wallet_address) {
-                    console.log('[Wallet Upgrade] ✅ User already has correct permanent wallet');
-                    return user;
-                } else {
-                    console.log('[Wallet Upgrade] ⚠️ User has different wallet, keeping existing (migration protection)');
-                    console.log('- Current wallet:', user.wallet_address);
-                    console.log('- Expected wallet:', expectedWallet.address);
-                    return user; // 기존 지갑 유지 (이미 사용 중일 수 있음)
-                }
-            }
-            
-            console.log('[Wallet Upgrade] Creating permanent deterministic wallet...');
-            
-            // 2. 사용자별 영구 지갑 생성
-            const newWalletData = await generateUserSpecificWallet(
-                user.email, 
-                user.provider || 'unknown', 
-                user.id
-            );
-            
-            // 3. 기존 사용자 데이터 보존하면서 지갑만 업그레이드
-            const upgradedUserData = {
-                ...user,
-                wallet_address: newWalletData.address,
-                private_key: newWalletData.privateKey,
-                wallet_upgrade_date: new Date().toISOString(),
-                wallet_is_real: newWalletData.isReal,
-                wallet_is_deterministic: newWalletData.isDeterministic
-            };
-            
-            // 4. entities.js에 업데이트
-            const upgradedUser = User.updateMyUserData(upgradedUserData);
-            
-            // 5. localStorage 업데이트
-            const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
-            authData.user = upgradedUser;
-            authData.wallet = newWalletData;
-            localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-            localStorage.setItem('catena_user', JSON.stringify(upgradedUser));
-            
-            console.log('[Wallet Upgrade] 🎉 Success! User now has PERMANENT wallet:');
-            console.log('- PERMANENT Address:', newWalletData.address);
-            console.log('- Will NEVER change on re-login');
-            console.log('- Points preserved:', upgradedUser.ctt_points);
-            console.log('- Score preserved:', upgradedUser.score);
-            
-            return upgradedUser;
-            
-        } catch (error) {
-            console.error('[Wallet Upgrade] Failed:', error);
-            return user;
-        }
-    };
-
-                // 💾 백엔드 자동 등록 함수 (새로운 사용자 로컬 + 백엔드 동시 등록)
-    const registerUserToBackend = async (userData) => {
-        try {
-            console.log('💾 [BackendRegister] 백엔드 자동 등록 시작:', userData.email);
-            console.log('📈 [BackendRegister] 로컬 데이터:', {
-                ctt_points: userData.ctt_points,
-                score: userData.score
-            });
-            
-            // 1. 백엔드에 사용자 등록 (비동기 - 실패해도 로컬 로그인은 성공)
-            const backendRegistration = ServerAPI.registerUser({
-                id: userData.id,
-                full_name: userData.full_name,
-                email: userData.email,
-                walletAddress: userData.wallet_address || '',
-                score: userData.score || 0,
-                ctt_points: userData.ctt_points || 0, // 🔧 수정: 중복 지급 방지 - 로컬 데이터 그대로 사용
-                is_admin: userData.is_admin || false
-            });
-            
-            // 2. 백엔드 등록 결과 처리 (비동기)
-            backendRegistration.then(backendUser => {
+            // 🔧 개선: 전체 사용자 목록 대신 단일 사용자 조회 (백엔드 API가 있다면)
+            // 현재는 전체 목록에서 찾는 방식 유지하되, 캐싱 추가
+            const allUsers = await ServerAPI.getAllUsers();
+            if (allUsers) {
+                const backendUser = allUsers.find(u => u.email === userRef.current.email);
                 if (backendUser) {
-                    console.log('✅ [BackendRegister] 백엔드 등록 성공:', {
-                        email: backendUser.email,
-                        ctt_points: backendUser.ctt_points,
-                        is_new: true
-                    });
-                    
-                    // 백엔드에서 기본 CTT 포인트를 주었다면 로컬도 업데이트
-                    if (backendUser.ctt_points > userData.ctt_points) {
-                        User.updateMyUserData({
-                            ctt_points: backendUser.ctt_points
-                        });
-                        
-                        // 사용자 상태 업데이트
-                        const currentUser = User.getCurrentUser();
-                        if (currentUser && currentUser.email === userData.email) {
-                            setUser(prev => ({
-                                ...prev,
-                                ctt_points: backendUser.ctt_points
-                            }));
-                        }
-                        
-                        console.log('🎉 [BackendRegister] 기본 CTT 포인트 지급:', backendUser.ctt_points);
-                    }
+                    console.log('[Profile] 백엔드에서 조회된 CTT 포인트:', backendUser.ctt_points);
+                    setBackendCttPoints(backendUser.ctt_points || 0);
                 } else {
-                    console.warn('⚠️ [BackendRegister] 백엔드 등록 실패 (로컬 로그인은 성공)');
+                    console.warn('[Profile] 백엔드에서 사용자를 찾을 수 없음:', userRef.current.email);
+                    setBackendCttPoints(userRef.current.ctt_points || 0);
                 }
-            }).catch(error => {
-                console.warn('⚠️ [BackendRegister] 백엔드 등록 실패:', error.message);
-                console.log('💻 [BackendRegister] 로컬 데이터로 계속 진행');
-            });
-            
-            // 3. 로컬 로그인은 즉시 성공 반환 (백엔드 실패와 무관)
-            console.log('✅ [BackendRegister] 로컬 등록 완료, 백엔드 등록 비동기 진행 중...');
-            return userData;
-            
-        } catch (error) {
-            console.warn('⚠️ [BackendRegister] 백엔드 등록 오류:', error);
-            console.log('💻 [BackendRegister] 로컬 데이터로 계속 진행');
-            return userData; // 백엔드 실패해도 로컬 로그인은 성공
-        }
-    };
-
-    // 🎆 상태 동기화 내장 업데이트 함수
-    const updateUserWithBackendSync = async (updatedUser) => {
-        try {
-            setUser(updatedUser);
-            
-            // localStorage 동기화
-            const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
-            authData.user = updatedUser;
-            localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-            localStorage.setItem('catena_user', JSON.stringify(updatedUser));
-            
-            console.log('🎆 [StateSync] 사용자 상태 및 localStorage 동기화 완료');
-            
-        } catch (error) {
-            console.error('💥 [StateSync] 상태 동기화 실패:', error);
-        }
-    };
-
-    // 🎆 인증 상태 확인 (개발자 로그인 + OAuth 모두 지원 + 영구 지갑)
-    const checkAuthStatus = async () => {
-        setIsLoading(true);
-        try {
-            console.log('[Auth Check] Starting...');
-            
-            // entities.js의 현재 사용자 확인
-            let currentUser = User.getCurrentUser();
-            if (currentUser) {
-                // 🔄 영구 지갑 확인
-                currentUser = await upgradeUserWalletIfNeeded(currentUser);
-                setUser(currentUser);
-                setIsAuthenticated(true);
-                console.log('[Auth Check] User found in entities:', currentUser.full_name);
-                return;
-            }
-
-            // 1. OAuth 인증 데이터 확인
-            const storedAuthData = localStorage.getItem('catena_auth_data');
-            if (storedAuthData) {
-                const authData = JSON.parse(storedAuthData);
-                let restoredUser = new User(authData.user);
-                
-                // 🔄 영구 지갑 확인
-                restoredUser = await upgradeUserWalletIfNeeded(restoredUser);
-                
-                User.setCurrentUser(restoredUser);
-                setUser(restoredUser);
-                setIsAuthenticated(true);
-                console.log('[Auth Check] OAuth user restored:', restoredUser.full_name);
-                return;
-            }
-
-            // 2. 개발자 로그인 데이터 확인 (LoginModal.jsx 호환)
-            const devUserData = localStorage.getItem('catena_user');
-            const devToken = localStorage.getItem('catena_auth_token');
-            
-            if (devUserData && devToken) {
-                const userData = JSON.parse(devUserData);
-                console.log('[Auth Check] Dev login data found:', userData);
-                
-                let restoredUser = new User(userData);
-                
-                // 🔄 영구 지갑 확인
-                restoredUser = await upgradeUserWalletIfNeeded(restoredUser);
-                
-                User.setCurrentUser(restoredUser);
-                
-                // OAuth 형식으로 통합 저장
-                const authData = {
-                    token: devToken,
-                    user: restoredUser,
-                    wallet: {
-                        address: restoredUser.wallet_address,
-                        privateKey: restoredUser.private_key,
-                        network: 'catena'
-                    },
-                    loginTime: userData.created_date || new Date().toISOString(),
-                    provider: userData.provider || 'developer'
-                };
-                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-                
-                setUser(restoredUser);
-                setIsAuthenticated(true);
-                console.log('[Auth Check] Dev user restored with permanent wallet:', restoredUser.full_name);
-                return;
-            }
-
-            // 3. 인증 정보 없음
-            setIsAuthenticated(false);
-            console.log('[Auth Check] No user found');
-            
-        } catch (error) {
-            console.error('[Auth Check] Error:', error);
-            setUser(null);
-            setIsAuthenticated(false);
-        } finally {
-            setIsLoading(false);
-            setAuthChecked(true);
-        }
-    };
-
-    // 🌐 실제 Google OAuth 로그인 (영구 지갑 생성)
-    const googleLogin = useGoogleLogin({
-        onSuccess: async (tokenResponse) => {
-            try {
-                console.log('[Google OAuth] Token received:', tokenResponse);
-                
-                // Google API로 사용자 정보 가져오기
-                const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                    headers: {
-                        Authorization: `Bearer ${tokenResponse.access_token}`,
-                    },
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Failed to fetch user info from Google');
-                }
-                
-                const googleUserInfo = await response.json();
-                console.log('[Google OAuth] User info received:', googleUserInfo);
-                
-                // 🔐 사용자별 영구 Catena Chain 지갑 생성
-                const walletData = await generateUserSpecificWallet(
-                    googleUserInfo.email,
-                    'google',
-                    googleUserInfo.id
-                );
-                
-                // 📝 User.create() 호출 (entities.js에서 중복 체크 처리)
-                const newUser = User.create({
-                    id: `google_${googleUserInfo.id}`,
-                    email: googleUserInfo.email,
-                    full_name: googleUserInfo.name || googleUserInfo.email.split('@')[0],
-                    wallet_address: walletData.address,
-                    private_key: walletData.privateKey,
-                    provider: 'google',
-                    social_profile: {
-                        provider: 'google',
-                        email: googleUserInfo.email,
-                        profile_image: googleUserInfo.picture || `https://avatar.vercel.sh/${googleUserInfo.email}.png`,
-                        verified: googleUserInfo.verified_email || true,
-                        google_id: googleUserInfo.id
-                    },
-                    score: 0,
-                    prediction_count: 0,
-                    daily_games_played: 0,
-                    last_game_date: new Date().toDateString(),
-                    completed_missions: [],
-                    created_at: new Date().toISOString(),
-                    is_admin: googleUserInfo.email === 'creatanetwork@gmail.com' || 
-                             googleUserInfo.email.includes('admin'),
-                    wallet_is_deterministic: walletData.isDeterministic
-                    // 🔧 수정: ctt_points 제거 - entities.js User 생성자가 기본값 200 제공
-                });
-                
-                console.log('[Google OAuth] User data after create:', {
-                    email: newUser.email,
-                    ctt_points: newUser.ctt_points,
-                    score: newUser.score,
-                    is_admin: newUser.is_admin,
-                    wallet_address: newUser.wallet_address,
-                    wallet_permanent: walletData.isDeterministic
-                });
-                
-                // 💾 백엔드 자동 등록 (비동기 - 로컬 로그인 성공과 무관)
-                await registerUserToBackend(newUser);
-                
-                User.setCurrentUser(newUser);
-                
-                // 통합 인증 데이터 저장
-                const authData = {
-                    token: tokenResponse.access_token,
-                    user: newUser,
-                    wallet: walletData,
-                    loginTime: new Date().toISOString(),
-                    tokenExpiry: new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString(),
-                    provider: 'google'
-                };
-                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-                localStorage.setItem('catena_user', JSON.stringify(newUser));
-                localStorage.setItem('catena_auth_token', tokenResponse.access_token);
-                
-                setUser(newUser);
-                setIsAuthenticated(true);
-                
-                console.log('[Google OAuth] 🎉 Login Success! PERMANENT Catena wallet created:', walletData.address);
-                return newUser;
-            } catch (error) {
-                console.error('[Google OAuth] Error:', error);
-                setIsAuthenticated(false);
-                throw error;
-            }
-        },
-        onError: (error) => {
-            console.error('[Google OAuth] Login failed:', error);
-            throw new Error('Google login failed');
-        },
-        scope: 'openid email profile'
-    });
-
-    // 🟡 카카오 로그인 (영구 지갑 생성)
-    const kakaoLogin = async () => {
-        try {
-            console.log('[Kakao Login] Starting simulation...');
-            
-            const kakaoUserData = {
-                id: `kakao_${Date.now()}`,
-                email: `kakao_user_${Math.random().toString(36).substr(2, 9)}@kakao.com`,
-                name: `카카오 사용자 ${Math.random().toString(36).substr(2, 5)}`,
-                nickname: `kakao_${Math.random().toString(36).substr(2, 5)}`,
-                profile_image: `https://k.kakaocdn.net/dn/default/profile_image.jpg`
-            };
-            
-            // 🔐 사용자별 영구 Catena Chain 지갑 생성
-            const walletData = await generateUserSpecificWallet(
-                kakaoUserData.email,
-                'kakao',
-                kakaoUserData.id
-            );
-            
-            // 📝 User.create() 호출 (entities.js에서 중복 체크 처리)
-            const newUser = User.create({
-                id: kakaoUserData.id,
-                email: kakaoUserData.email,
-                full_name: kakaoUserData.name,
-                wallet_address: walletData.address,
-                private_key: walletData.privateKey,
-                provider: 'kakao',
-                social_profile: {
-                    provider: 'kakao',
-                    email: kakaoUserData.email,
-                    profile_image: kakaoUserData.profile_image,
-                    verified: true
-                },
-                score: 0,
-                prediction_count: 0,
-                daily_games_played: 0,
-                last_game_date: new Date().toDateString(),
-                completed_missions: [],
-                created_at: new Date().toISOString(),
-                is_admin: false,
-                wallet_is_deterministic: walletData.isDeterministic
-                // 🔧 수정: ctt_points 제거 - entities.js User 생성자가 기본값 200 제공
-            });
-            
-            console.log('[Kakao Login] User data after create:', {
-                email: newUser.email,
-                ctt_points: newUser.ctt_points,
-                score: newUser.score,
-                wallet_address: newUser.wallet_address,
-                wallet_permanent: walletData.isDeterministic
-            });
-            
-            // 💾 백엔드 자동 등록 (비동기 - 로컬 로그인 성공과 무관)
-            await registerUserToBackend(newUser);
-            
-            User.setCurrentUser(newUser);
-            
-            const authData = {
-                token: `kakao_${Date.now()}`,
-                user: newUser,
-                wallet: walletData,
-                loginTime: new Date().toISOString(),
-                provider: 'kakao'
-            };
-            localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-            localStorage.setItem('catena_user', JSON.stringify(newUser));
-            localStorage.setItem('catena_auth_token', authData.token);
-            
-            setUser(newUser);
-            setIsAuthenticated(true);
-            
-            console.log('[Kakao Login] 🎉 Success! PERMANENT Catena wallet created:', walletData.address);
-            return newUser;
-        } catch (error) {
-            console.error('[Kakao Login] Failed:', error);
-            throw error;
-        }
-    };
-
-    // 🚀 통합 로그인 함수
-    const login = async (provider) => {
-        setIsLoading(true);
-        try {
-            if (provider === 'google') {
-                await googleLogin();
-            } else if (provider === 'kakao') {
-                await kakaoLogin();
             } else {
-                throw new Error(`Unsupported provider: ${provider}`);
+                console.warn('[Profile] 백엔드 연결 실패, 로컬 데이터 사용');
+                setBackendCttPoints(userRef.current.ctt_points || 0);
             }
         } catch (error) {
-            console.error(`[${provider} Login] Failed:`, error);
-            setIsAuthenticated(false);
+            console.error('[Profile] 백엔드 CTT 포인트 조회 실패:', error);
+            setBackendCttPoints(userRef.current.ctt_points || 0);
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, []);
+
+    // 🔧 메모리 누수 방지: useCallback으로 이벤트 핸들러 최적화
+    const handleCttPointsUpdate = useCallback((event) => {
+        console.log('[Profile] 🔔 CTT 포인트 업데이트 이벤트 수신:', event.detail);
+        
+        // 현재 사용자와 업데이트된 사용자가 같은지 확인
+        if (userRef.current && userRef.current.email === event.detail.userEmail) {
+            console.log('[Profile] ✅ 현재 사용자의 CTT 포인트 업데이트!');
+            
+            // 🔥 중요: 상태만 업데이트 (updateUserData 호출하지 않음)
+            setBackendCttPoints(event.detail.newCttPoints);
+            
+            // 📝 localStorage 업데이트 (선택적 - 직접 업데이트)
+            try {
+                const rawUsers = localStorage.getItem('catena_users');
+                if (rawUsers) {
+                    const users = JSON.parse(rawUsers);
+                    const userIndex = users.findIndex(u => u.email === userRef.current.email);
+                    if (userIndex !== -1) {
+                        users[userIndex].ctt_points = event.detail.newCttPoints;
+                        users[userIndex].updated_at = new Date().toISOString();
+                        localStorage.setItem('catena_users', JSON.stringify(users));
+                        console.log('[Profile] ✅ localStorage CTT 포인트 업데이트 성공');
+                    }
+                }
+            } catch (localError) {
+                console.warn('[Profile] ⚠️ localStorage 업데이트 실패:', localError);
+            }
+            
+            console.log('[Profile] 🎉 CTT 포인트 실시간 업데이트 완료:', {
+                previousCtt: backendCttPointsRef.current,
+                newCtt: event.detail.newCttPoints,
+                addedAmount: event.detail.addedAmount
+            });
+        }
+    }, []);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!user) {
+                setIsLoading(true);
+                return;
+            };
+
+            setIsLoading(true);
+            try {
+                setEditForm({ full_name: user.full_name });
+                setCTABalance(user.cta_balance || 0); 
+                
+                // 백엔드에서 최신 CTT 포인트 가져오기
+                await fetchBackendCttPoints();
+
+                const predictions = await Prediction.filter({ user_id: user.id }, '-created_date');
+
+                const totalPredictions = predictions.length;
+                const correctPredictions = predictions.filter(p => p.is_correct).length;
+                const winRate = totalPredictions > 0 ? (correctPredictions / totalPredictions * 100) : 0;
+                
+                // 연승 계산
+                let currentStreak = 0;
+                let bestStreak = 0;
+                predictions.slice().reverse().forEach(p => {
+                    if (p.is_correct) {
+                        currentStreak++;
+                    } else {
+                        bestStreak = Math.max(bestStreak, currentStreak);
+                        currentStreak = 0;
+                    }
+                });
+                bestStreak = Math.max(bestStreak, currentStreak);
+
+                // 코인별 통계 (시뮬레이션)
+                const coinStats = [
+                    { name: 'BTC', predictions: Math.floor(totalPredictions * 0.4), correct: Math.floor(correctPredictions * 0.4) },
+                    { name: 'ETH', predictions: Math.floor(totalPredictions * 0.3), correct: Math.floor(correctPredictions * 0.3) },
+                    { name: 'BNB', predictions: Math.floor(totalPredictions * 0.2), correct: Math.floor(correctPredictions * 0.2) },
+                    { name: 'SOL', predictions: Math.floor(totalPredictions * 0.1), correct: Math.floor(correctPredictions * 0.1) }
+                ];
+
+                setStats({
+                    totalPredictions,
+                    correctPredictions,
+                    winRate: winRate.toFixed(1),
+                    bestStreak,
+                    coinStats
+                });
+
+            } catch (error) {
+                console.error('Failed to fetch profile data:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        
+        // 🚀 실시간 CTT 포인트 업데이트 이벤트 리스너 추가
+        window.addEventListener('cttPointsUpdated', handleCttPointsUpdate);
+        
+        fetchData();
+        
+        // 정리 함수 - 컴포넌트 언마운트 시 이벤트 리스너 제거
+        return () => {
+            window.removeEventListener('cttPointsUpdated', handleCttPointsUpdate);
+        };
+    }, [user, fetchBackendCttPoints, handleCttPointsUpdate]);
+
+    const handleSave = () => {
+        try {
+            updateUserData(editForm);
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Failed to update profile:', error);
+        }
+    };
+
+    const handleCancel = () => {
+        if(user) setEditForm({ full_name: user.full_name });
+        setIsEditing(false);
+    };
+
+    const copyToClipboard = (text, type) => {
+        if (!text) {
+            console.warn(`Cannot copy ${type}: text is null or undefined.`);
+            return;
+        }
+        navigator.clipboard.writeText(text);
+        alert(`${type} copied to clipboard!`);
+    };
+    
+    const handleLanguageChange = (newLanguage) => {
+        try {
+            updateUserData({ language: newLanguage });
+        } catch (error) {
+            console.error('Failed to update language preference:', error);
+        }
+    }
+
+    // 🔧 최적화: 강력한 서버 깨우기 + 데이터 동기화 함수
+    const handleForceWakeupAndSync = useCallback(async () => {
+        setIsRefreshing(true);
+        
+        try {
+            console.log('🚀 [Profile] 강력한 서버 깨우기 + 데이터 동기화 시작...');
+            
+            // 1. 백엔드 서버 강제 깨우기 (최대 3회 시도)
+            console.log('😴 [Profile] 백엔드 서버 깨우기 시도...');
+            const wakeUpSuccess = await KeepAliveManager.wakeUpServer();
+            
+            if (wakeUpSuccess) {
+                console.log('✅ [Profile] 서버 깨우기 성공! 데이터 동기화 시작...');
+                
+                // 2. 사용자 데이터 동기화
+                await syncUserDataFromBackend();
+                
+                alert('🎉 서버 연결 및 데이터 동기화 완료!');
+            } else {
+                console.log('❌ [Profile] 서버 깨우기 실패');
+                alert('⚠️ 서버 연결에 실패했습니다. 로컬 데이터를 사용합니다.');
+                
+                // 로컬 데이터로 대체
+                setBackendCttPoints(userRef.current?.ctt_points || 0);
+            }
+            
+        } catch (error) {
+            console.error('💥 [Profile] 강제 동기화 오류:', error);
+            alert('❌ 동기화 중 오류가 발생했습니다.');
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, []);
+
+    // 🔧 최적화: 백엔드에서 사용자 데이터 완전 동기화 (스코어 보존)
+    const syncUserDataFromBackend = useCallback(async () => {
+        if (!userRef.current?.email) return;
+        
+        try {
+            console.log('📊 [Profile] 백엔드 데이터 동기화 시작 (스코어 보존 모드):', userRef.current.email);
+            
+            // 1. 백엔드에서 최신 사용자 데이터 가져오기
+            const allUsers = await ServerAPI.getAllUsers();
+            if (!allUsers) {
+                throw new Error('백엔드에서 사용자 데이터를 가져올 수 없습니다.');
+            }
+            
+            const backendUser = allUsers.find(u => u.email === userRef.current.email);
+            if (!backendUser) {
+                console.warn('[Profile] 백엔드에 사용자가 없음 - 로컬 데이터로 새로 등록');
+                
+                // 🔧 수정: 로컬 데이터를 백엔드에 등록 (스코어 보존)
+                const registeredUser = await ServerAPI.registerUser({
+                    id: userRef.current.id,
+                    full_name: userRef.current.full_name,
+                    email: userRef.current.email,
+                    walletAddress: userRef.current.walletAddress || '',
+                    score: userRef.current.score || 0,
+                    ctt_points: userRef.current.ctt_points || 0,
+                    is_admin: userRef.current.is_admin || false
+                });
+                
+                if (registeredUser) {
+                    console.log('✅ [Profile] 로컬 데이터로 백엔드 등록 성공');
+                    setBackendCttPoints(registeredUser.ctt_points || 0);
+                } else {
+                    throw new Error('사용자 등록 실패');
+                }
+            } else {
+                console.log('✅ [Profile] 백엔드 데이터 발견:', {
+                    backend_score: backendUser.score,
+                    backend_ctt: backendUser.ctt_points,
+                    local_score: userRef.current.score,
+                    local_ctt: userRef.current.ctt_points
+                });
+                
+                // 🔧 수정: 로컬과 백엔드 데이터 중 더 큰 값을 사용
+                const finalScore = Math.max(Number(backendUser.score) || 0, Number(userRef.current.score) || 0);
+                const finalCttPoints = Math.max(Number(backendUser.ctt_points) || 0, Number(userRef.current.ctt_points) || 0);
+                
+                console.log('🔄 [Profile] 최종 데이터 결정:', {
+                    final_score: finalScore,
+                    final_ctt: finalCttPoints,
+                    score_source: finalScore === (userRef.current.score || 0) ? 'local' : 'backend',
+                    ctt_source: finalCttPoints === (userRef.current.ctt_points || 0) ? 'local' : 'backend'
+                });
+                
+                // 2. 백엔드 데이터가 로컬보다 작으면 백엔드를 업데이트
+                if (finalScore > (backendUser.score || 0) || finalCttPoints > (backendUser.ctt_points || 0)) {
+                    console.log('📤 [Profile] 로컬 데이터가 더 최신 - 백엔드 업데이트');
+                    
+                    await ServerAPI.updateScore(
+                        userRef.current.email,
+                        finalScore,
+                        finalCttPoints,
+                        userRef.current.full_name
+                    );
+                    
+                    console.log('✅ [Profile] 백엔드 업데이트 완료');
+                }
+                
+                // 3. React 상태 업데이트 (최종 값으로)
+                const updatedUserData = {
+                    score: finalScore,
+                    ctt_points: finalCttPoints,
+                    synced_with_backend: true,
+                    last_sync: new Date().toISOString()
+                };
+                
+                await updateUserData(updatedUserData);
+                setBackendCttPoints(finalCttPoints);
+                
+                // 4. localStorage도 최종 값으로 업데이트
+                const rawUsers = localStorage.getItem('catena_users');
+                if (rawUsers) {
+                    const localUsers = JSON.parse(rawUsers);
+                    const userIndex = localUsers.findIndex(u => u.email === userRef.current.email);
+                    
+                    if (userIndex !== -1) {
+                        localUsers[userIndex] = {
+                            ...localUsers[userIndex],
+                            score: finalScore,
+                            ctt_points: finalCttPoints,
+                            updated_at: new Date().toISOString(),
+                            synced_with_backend: true
+                        };
+                        
+                        localStorage.setItem('catena_users', JSON.stringify(localUsers));
+                        console.log('✅ [Profile] localStorage 최종 동기화 완료');
+                    }
+                }
+                
+                // 5. 통계 데이터 다시 계산
+                await recalculateStats();
+                
+                console.log('🎉 [Profile] 완전 동기화 성공 - 스코어 보존됨:', {
+                    email: userRef.current.email,
+                    final_score: finalScore,
+                    final_ctt: finalCttPoints
+                });
+            }
+            
+        } catch (error) {
+            console.error('💥 [Profile] 백엔드 동기화 실패:', error);
             throw error;
-        } finally {
-            setIsLoading(false);
         }
-    };
+    }, [updateUserData]);
 
-    // 📤 로그아웃 (포인트 보존 버전)
-    const logout = async () => {
-        setIsLoading(true);
+    // 🔧 최적화: 통계 데이터 재계산
+    const recalculateStats = useCallback(async () => {
         try {
-            console.log('[Logout] Starting...');
+            const predictions = await Prediction.filter({ user_id: userRef.current.id }, '-created_date');
+            const totalPredictions = predictions.length;
+            const correctPredictions = predictions.filter(p => p.is_correct).length;
+            const winRate = totalPredictions > 0 ? (correctPredictions / totalPredictions * 100) : 0;
             
-            User.clearCurrentUser();
+            // 연승 계산
+            let currentStreak = 0;
+            let bestStreak = 0;
+            predictions.slice().reverse().forEach(p => {
+                if (p.is_correct) {
+                    currentStreak++;
+                } else {
+                    bestStreak = Math.max(bestStreak, currentStreak);
+                    currentStreak = 0;
+                }
+            });
+            bestStreak = Math.max(bestStreak, currentStreak);
             
-            // 🔒 세션 데이터만 클리어, 사용자 게임 데이터는 보존
-            localStorage.removeItem('catena_auth_data');
-            localStorage.removeItem('catena_current_user');
-            localStorage.removeItem('catena_user');
-            localStorage.removeItem('catena_auth_token');
+            setStats(prevStats => ({
+                ...prevStats,
+                totalPredictions,
+                correctPredictions,
+                winRate: winRate.toFixed(1),
+                bestStreak
+            }));
             
-            // 💾 중요: catena_users, catena_bets, catena_predictions 등은 보존됨
-            
-            setUser(null);
-            setIsAuthenticated(false);
-            
-            console.log('[Logout] Success - User data and PERMANENT wallet preserved');
-        } catch (error) {
-            console.error('[Logout] Error:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // 나머지 함수들은 기존과 동일...
-    const updateCttBalance = async (newBalance) => {
-        try {
-            if (!user) {
-                console.error('[CTT Update] No user found');
-                return false;
-            }
-            
-            console.log(`[CTT Update] ${user.ctt_points} → ${newBalance}`);
-            
-            const updatedUser = User.updateMyUserData({
-                ctt_points: newBalance
+            console.log('📈 [Profile] 통계 재계산 완료:', {
+                totalPredictions,
+                correctPredictions,
+                winRate: winRate.toFixed(1),
+                bestStreak
             });
             
-            if (updatedUser) {
-                setUser(updatedUser);
-                
-                const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
-                authData.user = updatedUser;
-                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-                
-                console.log('[CTT Update] Success:', newBalance);
-                return true;
-            }
         } catch (error) {
-            console.error('[CTT Update] Error:', error);
+            console.error('💥 [Profile] 통계 재계산 실패:', error);
         }
-        return false;
-    };
+    }, []);
 
-    const updateScore = async (newScore) => {
-        try {
-            if (!user) return false;
-            
-            const updatedUser = User.updateMyUserData({
-                score: newScore,
-                prediction_count: (user.prediction_count || 0) + 1
-            });
-            
-            if (updatedUser) {
-                setUser(updatedUser);
-                return true;
-            }
-        } catch (error) {
-            console.error('[Score Update] Error:', error);
+    // 수동 새로고침 핸들러 (기존)
+    const handleRefreshCttPoints = useCallback(async () => {
+        await fetchBackendCttPoints();
+    }, [fetchBackendCttPoints]);
+
+    // 🔧 무한 루프 방지: useRef로 최신 값 참조하여 무한 루프 방지
+    const handleBalanceUpdate = useCallback((newBalance) => {
+        setCTABalance(newBalance);
+        
+        // 중요: 무한 루프를 방지하기 위해, 잔액 값이 실제로 변경되었을 때만
+        // 전역 user 컨텍스트를 업데이트합니다.
+        if (user && user.cta_balance !== newBalance) {
+            console.log(`[Profile.jsx] Global CTA balance updating from ${user.cta_balance} to ${newBalance}.`);
+            updateUserData({ cta_balance: newBalance });
         }
-        return false;
-    };
+    }, [user, updateUserData]);
 
-    const recordGamePlay = async () => {
-        try {
-            if (!user) return false;
-            
-            const today = new Date().toDateString();
-            const dailyGames = user.last_game_date === today ? user.daily_games_played + 1 : 1;
-            
-            const updatedUser = User.updateMyUserData({
-                daily_games_played: dailyGames,
-                last_game_date: today
-            });
-            
-            if (updatedUser) {
-                setUser(updatedUser);
-                return true;
-            }
-        } catch (error) {
-            console.error('[Game Record] Error:', error);
-        }
-        return false;
-    };
-
-    const ensureAuthenticated = async () => {
-        if (!isAuthenticated) {
-            throw new Error('User not authenticated');
-        }
-        return user;
-    };
-
-    const updateUserData = async (newData) => {
-        try {
-            if (!user) {
-                console.error('[updateUserData] No user found');
-                return false;
-            }
-            
-            console.log('[updateUserData] Updating:', newData);
-            
-            const updatedUser = User.updateMyUserData(newData);
-            
-            if (updatedUser) {
-                setUser(updatedUser);
-                
-                const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
-                authData.user = updatedUser;
-                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-                
-                console.log('[updateUserData] Success:', updatedUser);
-                return true;
-            }
-        } catch (error) {
-            console.error('[updateUserData] Error:', error);
-        }
-        return false;
-    };
-
-    const value = {
-        user,
-        isLoading,
-        isAuthenticated,
-        authChecked,
-        login,
-        logout,
-        checkAuthStatus,
-        ensureAuthenticated,
-        updateUserData,
-        updateCttBalance,
-        updateScore,
-        recordGamePlay
-    };
-
-    return (
-        <Web3AuthContext.Provider value={value}>
-            {children}
-        </Web3AuthContext.Provider>
-    );
-}
-
-// 🎲 사용자별 deterministic 니모닉 생성
-const generateDeterministicMnemonic = (userSeed) => {
-    const words = [
-        'abandon', 'ability', 'able', 'about', 'above', 'absent', 'absorb', 'abstract',
-        'absurd', 'abuse', 'access', 'accident', 'account', 'accuse', 'achieve', 'acid',
-        'acoustic', 'acquire', 'across', 'act', 'action', 'actor', 'actress', 'actual',
-        'adapt', 'add', 'addict', 'address', 'adjust', 'admit', 'adult', 'advance'
+    const predictionData = [
+        { name: t('correct_answer'), value: stats.correctPredictions, color: '#10B981' },
+        { name: t('wrong_answer'), value: stats.totalPredictions - stats.correctPredictions, color: '#EF4444' }
     ];
     
-    const seedBytes = new TextEncoder().encode(userSeed);
-    let wordIndices = [];
-    
-    for (let i = 0; i < 12; i++) {
-        const index = (seedBytes[i % seedBytes.length] + i) % words.length;
-        wordIndices.push(index);
+    const getProviderIcon = (provider) => {
+        if (provider === 'google') return 'G';
+        if (provider === 'kakao') return 'K';
+        return 'U';
     }
-    
-    return wordIndices.map(index => words[index]).join(' ');
-};
 
-// 📱 간단한 해시 함수 (fallback)
-const simpleHashFunction = async (input) => {
-    try {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(input + 'catena-salt-2025');
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = new Uint8Array(hashBuffer);
-        return Array.from(hashArray)
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-    } catch (error) {
-        let hash = 0;
-        for (let i = 0; i < input.length; i++) {
-            const char = input.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-        }
-        return Math.abs(hash).toString(16).padStart(64, '0');
+    const getProviderText = (provider) => {
+        if (provider === 'google') return t('google_account');
+        if (provider === 'kakao') return t('kakao_account');
+        return t('email_account');
     }
-};
+
+    if (isLoading) {
+        return <div className="p-8"><Skeleton className="w-full h-96" /></div>;
+    }
+
+    return (
+        <div className="container mx-auto p-4 md:p-8">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="space-y-6">
+                 <Card className="bg-gradient-to-r from-gray-800 to-gray-700 border-gray-600">
+                    <CardContent className="p-6">
+                        <div className="flex flex-col md:flex-row items-center gap-6">
+                             <div className="relative w-24 h-24">
+                                <img 
+                                    src={user?.social_profile?.profile_image || `https://avatar.vercel.sh/${user?.email}.png`}
+                                    alt="Profile"
+                                    className="w-24 h-24 rounded-full object-cover bg-gradient-to-br from-cyan-400 to-blue-600"
+                                    onError={(e) => { e.target.onerror = null; e.target.src=`https://avatar.vercel.sh/${user?.email}.png` }}
+                                />
+                                <span className={`absolute bottom-0 right-0 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg ${user?.provider === 'google' ? 'bg-red-500' : user?.provider === 'kakao' ? 'bg-yellow-500' : 'bg-gray-500'}`}>
+                                    {getProviderIcon(user?.provider)}
+                                </span>
+                            </div>
+                            <div className="flex-1 text-center md:text-left">
+                                {isEditing ? (
+                                    <div className="space-y-4">
+                                        <div>
+                                            <Label htmlFor="name">{t('profile_name')}</Label>
+                                            <Input id="name" value={editForm.full_name} onChange={(e) => setEditForm(prev => ({ ...prev, full_name: e.target.value }))} className="mt-1 bg-gray-700 border-gray-600" />
+                                        </div>
+                                        <div className="flex gap-2 justify-center md:justify-start">
+                                            <Button onClick={handleSave} size="sm" className="bg-green-600 hover:bg-green-700"><Save className="w-4 h-4 mr-1" /> {t('save')}</Button>
+                                            <Button onClick={handleCancel} variant="outline" size="sm"><X className="w-4 h-4 mr-1" /> {t('cancel')}</Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <h1 className="text-3xl font-bold text-white mb-1">{user?.full_name}</h1>
+                                        <p className="text-gray-400 mb-2">{user?.email}</p>
+                                        <div className="flex items-center gap-2 text-sm text-gray-400 mb-4 justify-center md:justify-start">
+                                            <LogIn className="w-4 h-4" />
+                                            <span>
+                                                {getProviderText(user?.provider)}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col md:flex-row gap-4 items-center justify-center md:justify-start">
+                                            <Button onClick={() => setIsEditing(true)} variant="outline" size="sm"><Edit className="w-4 h-4 mr-1" /> {t('edit_profile')}</Button>
+                                            <LanguageSelector onLanguageChange={handleLanguageChange} />
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardContent className="p-4 text-center">
+                            <Trophy className="w-8 h-8 mx-auto mb-2 text-yellow-400" />
+                            <p className="text-2xl font-bold text-white">{user?.score || 0}</p>
+                            <p className="text-sm text-gray-400">{t('total_score_profile')}</p>
+                        </CardContent>
+                    </Card>
+                    
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardContent className="p-4 text-center">
+                            <Target className="w-8 h-8 mx-auto mb-2 text-green-400" />
+                            <p className="text-2xl font-bold text-white">{stats.winRate}%</p>
+                            <p className="text-sm text-gray-400">{t('win_rate_profile')}</p>
+                        </CardContent>
+                    </Card>
+                    
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardContent className="p-4 text-center">
+                            <TrendingUp className="w-8 h-8 mx-auto mb-2 text-purple-400" />
+                            <p className="text-2xl font-bold text-white">{stats.bestStreak}</p>
+                            <p className="text-sm text-gray-400">{t('best_streak_profile')}</p>
+                        </CardContent>
+                    </Card>
+
+                    {/* 백엔드 CTT Points 표시 (개선된 버전) */}
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardContent className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-2 mb-2">
+                                <Wallet className="w-8 h-8 text-cyan-400" />
+                                <Button
+                                    onClick={handleRefreshCttPoints}
+                                    disabled={isRefreshing}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="p-1 h-auto text-cyan-400 hover:text-cyan-300"
+                                    title="약한 새로고침"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                </Button>
+                                <Button
+                                    onClick={handleForceWakeupAndSync}
+                                    disabled={isRefreshing}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="p-1 h-auto text-yellow-400 hover:text-yellow-300"
+                                    title="강력한 서버 깨우기 + 데이터 동기화"
+                                >
+                                    🚀
+                                </Button>
+                            </div>
+                            <p className="text-2xl font-bold text-white">{formatCttPoints(backendCttPoints)}</p>
+                            <p className="text-sm text-gray-400">{t('ctt_points')}</p>
+                            {backendCttPoints !== (user?.ctt_points || 0) && (
+                                <p className="text-xs text-yellow-400 mt-1">
+                                    🔄 서버 동기화됨
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                </div>
+
+                {/* Replaced existing wallet card with CatenaWallet component */}
+                <CatenaWallet user={user} ctaBalance={ctaBalance} onBalanceUpdate={handleBalanceUpdate} />
+                
+                <Card className="bg-gray-800/50 border-gray-700">
+                    <CardHeader>
+                        <CardTitle className="text-xl font-bold text-yellow-400 flex items-center gap-2">
+                            <Wallet className="w-6 h-6" />
+                            {t('my_auto_wallet_title')}
+                        </CardTitle>
+                        <p className="text-sm text-gray-400">
+                            {t('auto_wallet_description')}
+                        </p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div>
+                            <Label className="text-gray-400">{t('wallet_address_public')}</Label>
+                            <div className="flex items-center gap-2 mt-1">
+                                <Input 
+                                    readOnly 
+                                    value={user?.wallet_address || ''} 
+                                    className="bg-gray-700 border-gray-600 font-mono"
+                                />
+                                <Button onClick={() => copyToClipboard(user?.wallet_address, t('wallet_address'))} variant="outline" size="icon">
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <Label className="text-gray-400">{t('private_key_private')}</Label>
+                            <div className="flex items-center gap-2 mt-1">
+                                <Input 
+                                    readOnly 
+                                    type={privateKeyVisible ? 'text' : 'password'}
+                                    value={user?.private_key || ''} 
+                                    className="bg-gray-700 border-gray-600 font-mono"
+                                />
+                                <Button onClick={() => setPrivateKeyVisible(!privateKeyVisible)} variant="outline" size="icon">
+                                    {privateKeyVisible ? '🙈' : '👁️'}
+                                </Button>
+                                <Button onClick={() => copyToClipboard(user?.private_key, t('private_key'))} variant="outline" size="icon">
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </div>
+
+                        <Alert variant="destructive" className="bg-red-900/50 border-red-500/30 text-red-300">
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertTitle>{t('private_key_warning_title')}</AlertTitle>
+                          <AlertDescription className="text-red-400">
+                            {t('private_key_warning_description').split('\\n').map((line, i) => (
+                                <React.Fragment key={i}>
+                                    {line}
+                                    {i < t('private_key_warning_description').split('\\n').length - 1 && <br/>}
+                                </React.Fragment>
+                            ))}
+                          </AlertDescription>
+                        </Alert>
+                    </CardContent>
+                </Card>
+                
+                <div className="grid md:grid-cols-2 gap-6">
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardHeader><CardTitle className="text-lg font-bold text-cyan-400">{t('prediction_performance')}</CardTitle></CardHeader>
+                        <CardContent><div className="h-64"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={predictionData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} dataKey="value">{predictionData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}</Pie><Tooltip /></PieChart></ResponsiveContainer></div></CardContent>
+                    </Card>
+                    <Card className="bg-gray-800/50 border-gray-700">
+                        <CardHeader><CardTitle className="text-lg font-bold text-cyan-400">{t('coin_performance')}</CardTitle></CardHeader>
+                        <CardContent><div className="h-64"><ResponsiveContainer width="100%" height="100%"><BarChart data={stats.coinStats}><XAxis dataKey="name" stroke="#A0AEC0" /><YAxis stroke="#A0AEC0" /><Tooltip contentStyle={{ backgroundColor: '#1A202C', borderColor: '#4A5568', color: '#E2E8F0' }} /><Bar dataKey="correct" fill="#10B981" /><Bar dataKey="predictions" fill="#374151" /></BarChart></ResponsiveContainer></div></CardContent>
+                    </Card>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
