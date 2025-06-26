@@ -322,8 +322,11 @@ export class User {
             }
         });
         
-        // 점수가 0보다 큰 사용자만 필터링
-        const validUsers = uniqueUsers.filter(u => u.score && u.score > 0);
+        // 🔧 수정: 점수 0인 사용자도 랭킹에 표시 (신규 사용자 포함)
+        const validUsers = uniqueUsers.filter(u => {
+            const score = Number(u.score) || 0;
+            return score >= 0; // 0점도 유효한 점수로 인정
+        });
         
         // Sort users if sortField is provided
         if (sortField) {
