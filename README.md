@@ -1,8 +1,8 @@
-# Base44 App
+# Creata Mission
 
 
-This app was created automatically by Base44.
-It's a Vite+React app that communicates with the Base44 API.
+by Creata team.
+It's a Vite+React app that communicates with the Creata API.
 
 ## Running the app
 
@@ -16,5 +16,3 @@ npm run dev
 ```bash
 npm run build
 ```
-
-For more information and support, please contact Base44 support at app@base44.com.
