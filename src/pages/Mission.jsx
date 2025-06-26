@@ -90,11 +90,23 @@ export default function MissionPage() {
             
             const mission = MISSIONS.find(m => m.id === missionId);
             
-            // 추가: CTT 포인트도 함께 업데이트
+            // 🔧 수정: CTT 포인트 계산 오류 해결
+            const currentCttPoints = user?.ctt_points ?? 0; // || 200 제거!
+            const currentScore = user?.score ?? 0;
+            
+            console.log(`📈 [Mission] ${missionId} 계산:`, {
+                현재_CTT: currentCttPoints,
+                현재_점수: currentScore,
+                미션_CTT: mission.ctt_points,
+                미션_점수: mission.points,
+                예상_총_CTT: currentCttPoints + mission.ctt_points,
+                예상_총_점수: currentScore + mission.points
+            });
+            
             const updatedUserData = {
                 completed_missions: newCompleted,
-                score: (user?.score || 0) + mission.points,
-                ctt_points: (user?.ctt_points || 200) + mission.ctt_points // CTT 포인트 업데이트
+                score: currentScore + mission.points,
+                ctt_points: currentCttPoints + mission.ctt_points // 올바른 계산
             };
             
             await User.updateMyUserData(updatedUserData);
@@ -102,11 +114,16 @@ export default function MissionPage() {
             setUser(prev => ({
                 ...prev,
                 completed_missions: newCompleted,
-                score: (prev?.score || 0) + mission.points,
-                ctt_points: (prev?.ctt_points || 200) + mission.ctt_points // CTT 포인트 업데이트
+                score: currentScore + mission.points,
+                ctt_points: currentCttPoints + mission.ctt_points // 올바른 계산
             }));
             
-            console.log(`🎉 [미션 완료] ${missionId}: +${mission.points} score, +${mission.ctt_points} CTT`);
+            console.log(`✅ [미션 완료] ${missionId}:`, {
+                추가된_점수: mission.points,
+                추가된_CTT: mission.ctt_points,
+                최종_점수: currentScore + mission.points,
+                최종_CTT: currentCttPoints + mission.ctt_points
+            });
         }
     };
 
