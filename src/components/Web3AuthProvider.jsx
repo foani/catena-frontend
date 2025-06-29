@@ -3,6 +3,7 @@ import { useGoogleLogin } from '@react-oauth/google';
 import { User } from '@/api/entities';
 import { ethers } from 'ethers';
 import { CATENA_NETWORKS } from './CatenaBlockchain';
+import { ServerAPI } from '@/api/serverAPI'; // 백엔드 API 추가
 
 const Web3AuthContext = createContext();
 
@@ -205,20 +206,22 @@ export default function Web3AuthProvider({ children }) {
         }
     };
 
-    // 인증 상태 확인 (개발자 로그인 + OAuth 모두 지원 + 영구 지갑)
+    // 인증 상태 확인 (개발자 로그인 + OAuth 모두 지원 + 영구 지갑 + 백엔드 동기화)
     const checkAuthStatus = async () => {
         setIsLoading(true);
         try {
-            console.log('[Auth Check] Starting...');
+            console.log('[Auth Check] 인증 상태 확인 시작...');
             
             // entities.js의 현재 사용자 확인
             let currentUser = User.getCurrentUser();
             if (currentUser) {
-                // 🔄 영구 지갑 확인
-                currentUser = await upgradeUserWalletIfNeeded(currentUser);
+                // 🔄 백엔드 데이터와 동기화
+                console.log('[Auth Check] 기존 사용자 발견 - 백엔드 동기화 시작');
+                currentUser = await syncWithBackend(currentUser);
+                
                 setUser(currentUser);
                 setIsAuthenticated(true);
-                console.log('[Auth Check] User found in entities:', currentUser.full_name);
+                console.log('[Auth Check] 사용자 동기화 완료:', currentUser.full_name);
                 return;
             }
 
@@ -228,13 +231,14 @@ export default function Web3AuthProvider({ children }) {
                 const authData = JSON.parse(storedAuthData);
                 let restoredUser = new User(authData.user);
                 
-                // 🔄 영구 지갑 확인
-                restoredUser = await upgradeUserWalletIfNeeded(restoredUser);
+                // 🔄 백엔드 데이터와 동기화
+                console.log('[Auth Check] OAuth 사용자 복원 - 백엔드 동기화 시작');
+                restoredUser = await syncWithBackend(restoredUser);
                 
                 User.setCurrentUser(restoredUser);
                 setUser(restoredUser);
                 setIsAuthenticated(true);
-                console.log('[Auth Check] OAuth user restored:', restoredUser.full_name);
+                console.log('[Auth Check] OAuth 사용자 동기화 완료:', restoredUser.full_name);
                 return;
             }
 
@@ -244,12 +248,13 @@ export default function Web3AuthProvider({ children }) {
             
             if (devUserData && devToken) {
                 const userData = JSON.parse(devUserData);
-                console.log('[Auth Check] Dev login data found:', userData);
+                console.log('[Auth Check] 개발자 로그인 데이터 발견:', userData);
                 
                 let restoredUser = new User(userData);
                 
-                // 🔄 영구 지갑 확인
-                restoredUser = await upgradeUserWalletIfNeeded(restoredUser);
+                // 🔄 백엔드 데이터와 동기화
+                console.log('[Auth Check] 개발자 사용자 - 백엔드 동기화 시작');
+                restoredUser = await syncWithBackend(restoredUser);
                 
                 User.setCurrentUser(restoredUser);
                 
@@ -269,16 +274,16 @@ export default function Web3AuthProvider({ children }) {
                 
                 setUser(restoredUser);
                 setIsAuthenticated(true);
-                console.log('[Auth Check] Dev user restored with permanent wallet:', restoredUser.full_name);
+                console.log('[Auth Check] 개발자 사용자 동기화 완료:', restoredUser.full_name);
                 return;
             }
 
             // 3. 인증 정보 없음
             setIsAuthenticated(false);
-            console.log('[Auth Check] No user found');
+            console.log('[Auth Check] 인증 정보 없음');
             
         } catch (error) {
-            console.error('[Auth Check] Error:', error);
+            console.error('[Auth Check] 오류:', error);
             setUser(null);
             setIsAuthenticated(false);
         } finally {
@@ -349,26 +354,35 @@ export default function Web3AuthProvider({ children }) {
                     wallet_permanent: walletData.isDeterministic
                 });
                 
-                User.setCurrentUser(newUser);
+                // 🔄 백엔드와 동기화
+                console.log('[Google OAuth] 백엔드 동기화 시작...');
+                const syncedUser = await syncWithBackend(newUser);
+                
+                User.setCurrentUser(syncedUser);
                 
                 // 통합 인증 데이터 저장
                 const authData = {
                     token: tokenResponse.access_token,
-                    user: newUser,
+                    user: syncedUser,
                     wallet: walletData,
                     loginTime: new Date().toISOString(),
                     tokenExpiry: new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString(),
                     provider: 'google'
                 };
                 localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-                localStorage.setItem('catena_user', JSON.stringify(newUser));
+                localStorage.setItem('catena_user', JSON.stringify(syncedUser));
                 localStorage.setItem('catena_auth_token', tokenResponse.access_token);
                 
-                setUser(newUser);
+                setUser(syncedUser);
                 setIsAuthenticated(true);
                 
-                console.log('[Google OAuth] 🎉 Login Success! PERMANENT Catena wallet created:', walletData.address);
-                return newUser;
+                console.log('[Google OAuth] 🎉 로그인 성공! 백엔드 동기화된 Catena 지갑 생성:', {
+                    wallet: walletData.address,
+                    ctt_points: syncedUser.ctt_points,
+                    score: syncedUser.score,
+                    synced: syncedUser.backend_synced
+                });
+                return syncedUser;
             } catch (error) {
                 console.error('[Google OAuth] Error:', error);
                 setIsAuthenticated(false);
@@ -434,24 +448,33 @@ export default function Web3AuthProvider({ children }) {
                 wallet_permanent: walletData.isDeterministic
             });
             
-            User.setCurrentUser(newUser);
+            // 🔄 백엔드와 동기화
+            console.log('[Kakao Login] 백엔드 동기화 시작...');
+            const syncedUser = await syncWithBackend(newUser);
+            
+            User.setCurrentUser(syncedUser);
             
             const authData = {
                 token: `kakao_${Date.now()}`,
-                user: newUser,
+                user: syncedUser,
                 wallet: walletData,
                 loginTime: new Date().toISOString(),
                 provider: 'kakao'
             };
             localStorage.setItem('catena_auth_data', JSON.stringify(authData));
-            localStorage.setItem('catena_user', JSON.stringify(newUser));
+            localStorage.setItem('catena_user', JSON.stringify(syncedUser));
             localStorage.setItem('catena_auth_token', authData.token);
             
-            setUser(newUser);
+            setUser(syncedUser);
             setIsAuthenticated(true);
             
-            console.log('[Kakao Login] 🎉 Success! PERMANENT Catena wallet created:', walletData.address);
-            return newUser;
+            console.log('[Kakao Login] 🎉 성공! 백엔드 동기화된 Catena 지갑 생성:', {
+                wallet: walletData.address,
+                ctt_points: syncedUser.ctt_points,
+                score: syncedUser.score,
+                synced: syncedUser.backend_synced
+            });
+            return syncedUser;
         } catch (error) {
             console.error('[Kakao Login] Failed:', error);
             throw error;
@@ -505,7 +528,111 @@ export default function Web3AuthProvider({ children }) {
         }
     };
 
-    // 나머지 함수들은 기존과 동일...
+    // 🔄 백엔드 데이터 동기화 함수 (새로 추가)
+    const syncWithBackend = async (localUser) => {
+        try {
+            console.log('[SyncBackend] 🔄 백엔드 데이터 동기화 시작:', localUser.email);
+            
+            // 1. 서버 연결 상태 확인
+            const isServerOnline = await ServerAPI.checkHealth();
+            if (!isServerOnline) {
+                console.warn('[SyncBackend] ⚠️ 백엔드 서버 오프라인 - 로컬 데이터 사용');
+                return localUser;
+            }
+            
+            console.log('[SyncBackend] ✅ 백엔드 서버 온라인');
+            
+            // 2. 백엔드에서 사용자 조회
+            const allUsers = await ServerAPI.getAllUsers();
+            if (!allUsers) {
+                console.warn('[SyncBackend] ⚠️ 백엔드 사용자 목록 조회 실패 - 로컬 데이터 사용');
+                return localUser;
+            }
+            
+            const backendUser = allUsers.find(u => 
+                u.email === localUser.email || 
+                u.email?.toLowerCase() === localUser.email?.toLowerCase()
+            );
+            
+            if (backendUser) {
+                console.log('[SyncBackend] 📊 백엔드 사용자 발견:', {
+                    name: backendUser.full_name,
+                    backend_ctt: backendUser.ctt_points,
+                    backend_score: backendUser.score,
+                    local_ctt: localUser.ctt_points,
+                    local_score: localUser.score
+                });
+                
+                // 3. 로컬과 백엔드 데이터 비교 및 동기화
+                const syncedUserData = {
+                    ...localUser,
+                    // 백엔드 데이터로 업데이트 (더 신뢰성 있는 데이터)
+                    ctt_points: backendUser.ctt_points || localUser.ctt_points || 0,
+                    score: backendUser.score || localUser.score || 0,
+                    prediction_count: backendUser.prediction_count || localUser.prediction_count || 0,
+                    
+                    // 로컬 데이터 유지 (중요한 선택적 데이터)
+                    wallet_address: localUser.wallet_address, // 로컬 지갑 주소 유지
+                    private_key: localUser.private_key, // 로컬 키 유지
+                    social_profile: localUser.social_profile, // 로컬 소셜 정보 유지
+                    
+                    // 메타데이터 업데이트
+                    backend_synced: true,
+                    last_backend_sync: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                
+                // 4. User 엔티티 업데이트
+                const updatedUser = User.updateMyUserData(syncedUserData);
+                
+                console.log('[SyncBackend] ✅ 백엔드 데이터로 동기화 완료:', {
+                    name: updatedUser.full_name,
+                    final_ctt: updatedUser.ctt_points,
+                    final_score: updatedUser.score,
+                    synced: true
+                });
+                
+                return updatedUser;
+                
+            } else {
+                console.log('[SyncBackend] 🆕 백엔드에 사용자 없음 - 사용자 등록 시도');
+                
+                // 5. 백엔드에 사용자 등록
+                const registeredUser = await ServerAPI.registerUser({
+                    id: localUser.id,
+                    full_name: localUser.full_name,
+                    email: localUser.email,
+                    walletAddress: localUser.wallet_address || '',
+                    score: localUser.score || 0,
+                    ctt_points: localUser.ctt_points || 0,
+                    is_admin: localUser.is_admin || false
+                });
+                
+                if (registeredUser) {
+                    console.log('[SyncBackend] ✅ 백엔드 사용자 등록 성공');
+                    
+                    const syncedUserData = {
+                        ...localUser,
+                        backend_synced: true,
+                        backend_registered: true,
+                        last_backend_sync: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+                    
+                    const updatedUser = User.updateMyUserData(syncedUserData);
+                    return updatedUser;
+                } else {
+                    console.warn('[SyncBackend] ❌ 백엔드 사용자 등록 실패 - 로컬 데이터 사용');
+                    return localUser;
+                }
+            }
+            
+        } catch (error) {
+            console.error('[SyncBackend] 💥 백엔드 동기화 오류:', error);
+            console.warn('[SyncBackend] ⚠️ 동기화 실패 - 로컬 데이터 사용');
+            return localUser;
+        }
+    };
     const updateCttBalance = async (newBalance) => {
         try {
             if (!user) {
@@ -515,22 +642,37 @@ export default function Web3AuthProvider({ children }) {
             
             console.log(`[CTT Update] ${user.ctt_points} → ${newBalance}`);
             
+            // 1. 로컬 데이터 업데이트
             const updatedUser = User.updateMyUserData({
                 ctt_points: newBalance
             });
             
             if (updatedUser) {
+                // 2. 백엔드 동기화
+                try {
+                    await ServerAPI.updateScore(
+                        updatedUser.email,
+                        updatedUser.score || 0,
+                        newBalance,
+                        updatedUser.full_name
+                    );
+                    console.log('[CTT Update] 백엔드 동기화 성공');
+                } catch (backendError) {
+                    console.warn('[CTT Update] 백엔드 동기화 실패:', backendError);
+                }
+                
+                // 3. 상태 업데이트
                 setUser(updatedUser);
                 
                 const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
                 authData.user = updatedUser;
                 localStorage.setItem('catena_auth_data', JSON.stringify(authData));
                 
-                console.log('[CTT Update] Success:', newBalance);
+                console.log('[CTT Update] 성공:', newBalance);
                 return true;
             }
         } catch (error) {
-            console.error('[CTT Update] Error:', error);
+            console.error('[CTT Update] 오류:', error);
         }
         return false;
     };
@@ -539,17 +681,40 @@ export default function Web3AuthProvider({ children }) {
         try {
             if (!user) return false;
             
+            console.log(`[Score Update] ${user.score || 0} → ${newScore}`);
+            
+            // 1. 로컬 데이터 업데이트
             const updatedUser = User.updateMyUserData({
                 score: newScore,
                 prediction_count: (user.prediction_count || 0) + 1
             });
             
             if (updatedUser) {
+                // 2. 백엔드 동기화
+                try {
+                    await ServerAPI.updateScore(
+                        updatedUser.email,
+                        newScore,
+                        updatedUser.ctt_points || 0,
+                        updatedUser.full_name
+                    );
+                    console.log('[Score Update] 백엔드 동기화 성공');
+                } catch (backendError) {
+                    console.warn('[Score Update] 백엔드 동기화 실패:', backendError);
+                }
+                
+                // 3. 상태 업데이트
                 setUser(updatedUser);
+                
+                const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
+                authData.user = updatedUser;
+                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
+                
+                console.log('[Score Update] 성공:', newScore);
                 return true;
             }
         } catch (error) {
-            console.error('[Score Update] Error:', error);
+            console.error('[Score Update] 오류:', error);
         }
         return false;
     };
@@ -561,17 +726,30 @@ export default function Web3AuthProvider({ children }) {
             const today = new Date().toDateString();
             const dailyGames = user.last_game_date === today ? user.daily_games_played + 1 : 1;
             
+            console.log(`[Game Record] 일일 게임 횟수: ${user.daily_games_played || 0} → ${dailyGames}`);
+            
+            // 1. 로컬 데이터 업데이트
             const updatedUser = User.updateMyUserData({
                 daily_games_played: dailyGames,
                 last_game_date: today
             });
             
             if (updatedUser) {
+                // 2. 게임 횟수는 백엔드에 전송하지 않음 (로컬 데이터만)
+                // 점수/CTT 포인트만 백엔드에 동기화
+                
+                // 3. 상태 업데이트
                 setUser(updatedUser);
+                
+                const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
+                authData.user = updatedUser;
+                localStorage.setItem('catena_auth_data', JSON.stringify(authData));
+                
+                console.log('[Game Record] 성공:', { dailyGames, today });
                 return true;
             }
         } catch (error) {
-            console.error('[Game Record] Error:', error);
+            console.error('[Game Record] 오류:', error);
         }
         return false;
     };
@@ -590,22 +768,43 @@ export default function Web3AuthProvider({ children }) {
                 return false;
             }
             
-            console.log('[updateUserData] Updating:', newData);
+            console.log('[updateUserData] 데이터 업데이트 시작:', newData);
             
+            // 1. 로컬 데이터 업데이트
             const updatedUser = User.updateMyUserData(newData);
             
             if (updatedUser) {
+                // 2. 백엔드에 점수/CTT 포인트 업데이트 (중요한 데이터만)
+                if (newData.score !== undefined || newData.ctt_points !== undefined) {
+                    console.log('[updateUserData] 중요 데이터 변경 감지 - 백엔드 동기화 시도');
+                    
+                    try {
+                        await ServerAPI.updateScore(
+                            updatedUser.email,
+                            updatedUser.score || 0,
+                            updatedUser.ctt_points || 0,
+                            updatedUser.full_name
+                        );
+                        console.log('[updateUserData] 백엔드 동기화 성공');
+                    } catch (backendError) {
+                        console.warn('[updateUserData] 백엔드 동기화 실패:', backendError);
+                        // 백엔드 실패해도 로컬 업데이트는 유지
+                    }
+                }
+                
+                // 3. 상태 업데이트
                 setUser(updatedUser);
                 
+                // 4. localStorage 업데이트
                 const authData = JSON.parse(localStorage.getItem('catena_auth_data') || '{}');
                 authData.user = updatedUser;
                 localStorage.setItem('catena_auth_data', JSON.stringify(authData));
                 
-                console.log('[updateUserData] Success:', updatedUser);
+                console.log('[updateUserData] 성공:', updatedUser);
                 return true;
             }
         } catch (error) {
-            console.error('[updateUserData] Error:', error);
+            console.error('[updateUserData] 오류:', error);
         }
         return false;
     };
