@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import App from '@/App.jsx'
 import '@/index.css'
-import { initializeKeepAlive } from '@/api/serverAPI'
+//import { initializeKeepAlive } from '@/api/serverAPI'
 
 // Google OAuth Client ID (환경변수 또는 기본값)
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 
