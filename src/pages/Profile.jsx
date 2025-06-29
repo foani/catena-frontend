@@ -53,35 +53,117 @@ export default function ProfilePage() {
         }
     };
 
-    // 백엔드에서 최신 CTT 포인트 가져오기
+    // 백엔드에서 최신 CTT 포인트 가져오기 (개선된 버전)
     const fetchBackendCttPoints = async () => {
-        if (!user?.email) return;
+        if (!user?.email) {
+            console.warn('[Profile] 사용자 이메일이 없어 백엔드 조회 불가');
+            setBackendCttPoints(user?.ctt_points || 0);
+            return;
+        }
         
         setIsRefreshing(true);
+        
         try {
-            console.log('[Profile] 백엔드에서 최신 CTT 포인트 조회:', user.email);
+            console.log('[Profile] 🔄 백엔드에서 최신 CTT 포인트 조회 시작:', user.email);
             
-            // 전체 사용자 목록에서 현재 사용자 찾기
+            // 1. 먼저 서버 연결 상태 확인
+            const isServerConnected = await ServerAPI.checkHealth();
+            
+            if (!isServerConnected) {
+                console.warn('[Profile] ⚠️ 백엔드 서버 연결 실패 - 로컬 데이터 사용');
+                setBackendCttPoints(user.ctt_points || 0);
+                return;
+            }
+            
+            console.log('[Profile] ✅ 백엔드 서버 연결 확인됨');
+            
+            // 2. 전체 사용자 목록에서 현재 사용자 찾기
             const allUsers = await ServerAPI.getAllUsers();
-            if (allUsers) {
-                const backendUser = allUsers.find(u => u.email === user.email);
+            
+            if (allUsers && Array.isArray(allUsers)) {
+                const backendUser = allUsers.find(u => 
+                    u.email === user.email || 
+                    u.email?.toLowerCase() === user.email?.toLowerCase()
+                );
+                
                 if (backendUser) {
-                    console.log('[Profile] 백엔드에서 조회된 CTT 포인트:', backendUser.ctt_points);
-                    setBackendCttPoints(backendUser.ctt_points || 0);
+                    console.log('[Profile] ✅ 백엔드에서 사용자 찾음:', {
+                        name: backendUser.full_name,
+                        email: backendUser.email,
+                        ctt_points: backendUser.ctt_points,
+                        score: backendUser.score
+                    });
                     
-                    // 🔥 중요: 상태만 업데이트 (updateUserData 호출하지 않음)
-                    // 세션 망가지는 문제 방지를 위해 주석 처리
-                    // updateUserData({ ctt_points: backendUser.ctt_points });
+                    // 백엔드 CTT 포인트 설정
+                    const backendCtt = Number(backendUser.ctt_points) || 0;
+                    setBackendCttPoints(backendCtt);
+                    
+                    // 💡 로컬 데이터와 백엔드 데이터 비교
+                    const localCtt = Number(user.ctt_points) || 0;
+                    if (Math.abs(backendCtt - localCtt) > 0.01) {
+                        console.log('[Profile] 📊 CTT 포인트 차이 발견:', {
+                            local: localCtt,
+                            backend: backendCtt,
+                            difference: backendCtt - localCtt
+                        });
+                        
+                        // 🔄 백엔드 데이터가 더 최신인 경우 로컬 업데이트
+                        if (backendUser.updated_at && user.updated_at) {
+                            const backendTime = new Date(backendUser.updated_at).getTime();
+                            const localTime = new Date(user.updated_at).getTime();
+                            
+                            if (backendTime > localTime) {
+                                console.log('[Profile] 🔄 백엔드 데이터가 더 최신 - 동기화 고려');
+                                // 주의: updateUserData 호출 시 무한 루프 방지를 위해 조건부 실행
+                                // updateUserData({ ctt_points: backendCtt });
+                            }
+                        }
+                    } else {
+                        console.log('[Profile] ✅ 로컬-백엔드 CTT 포인트 일치:', backendCtt);
+                    }
                 } else {
-                    console.warn('[Profile] 백엔드에서 사용자를 찾을 수 없음:', user.email);
-                    setBackendCttPoints(user.ctt_points || 0);
+                    console.warn('[Profile] ⚠️ 백엔드에서 사용자를 찾을 수 없음:', {
+                        searchEmail: user.email,
+                        totalBackendUsers: allUsers.length,
+                        backendEmails: allUsers.map(u => u.email).slice(0, 5)
+                    });
+                    
+                    // 백엔드에 사용자가 없는 경우 등록 시도
+                    console.log('[Profile] 🔄 백엔드에 사용자 등록 시도...');
+                    const registrationResult = await ServerAPI.registerUser({
+                        id: user.id,
+                        full_name: user.full_name,
+                        email: user.email,
+                        walletAddress: user.wallet_address || '',
+                        score: user.score || 0,
+                        ctt_points: user.ctt_points || 0,
+                        is_admin: user.is_admin || false
+                    });
+                    
+                    if (registrationResult) {
+                        console.log('[Profile] ✅ 백엔드 사용자 등록 성공');
+                        setBackendCttPoints(registrationResult.ctt_points || user.ctt_points || 0);
+                    } else {
+                        console.warn('[Profile] ❌ 백엔드 사용자 등록 실패');
+                        setBackendCttPoints(user.ctt_points || 0);
+                    }
                 }
             } else {
-                console.warn('[Profile] 백엔드 연결 실패, 로컬 데이터 사용');
+                console.warn('[Profile] ⚠️ 백엔드에서 사용자 목록 조회 실패:', {
+                    response: allUsers,
+                    type: typeof allUsers
+                });
                 setBackendCttPoints(user.ctt_points || 0);
             }
+            
         } catch (error) {
-            console.error('[Profile] 백엔드 CTT 포인트 조회 실패:', error);
+            console.error('[Profile] 💥 백엔드 CTT 포인트 조회 오류:', {
+                error: error.message,
+                stack: error.stack,
+                userEmail: user.email
+            });
+            
+            // 오류 발생 시 로컬 데이터 사용
             setBackendCttPoints(user.ctt_points || 0);
         } finally {
             setIsRefreshing(false);
@@ -91,18 +173,28 @@ export default function ProfilePage() {
     useEffect(() => {
         const fetchData = async () => {
             if (!user) {
+                console.log('[Profile] 🚫 사용자 데이터 없음 - fetchData 종료');
                 setIsLoading(true);
                 return;
             };
+
+            console.log('[Profile] 🚀 fetchData 시작 - 사용자:', {
+                name: user.full_name,
+                email: user.email,
+                local_ctt_points: user.ctt_points,
+                local_score: user.score
+            });
 
             setIsLoading(true);
             try {
                 setEditForm({ full_name: user.full_name });
                 setCTABalance(user.cta_balance || 0); 
                 
+                console.log('[Profile] 🔄 백엔드 CTT 포인트 조회 시작...');
                 // 백엔드에서 최신 CTT 포인트 가져오기
                 await fetchBackendCttPoints();
 
+                console.log('[Profile] 📈 예측 통계 조회 시작...');
                 const predictions = await Prediction.filter({ user_id: user.id }, '-created_date');
 
                 const totalPredictions = predictions.length;
@@ -130,16 +222,24 @@ export default function ProfilePage() {
                     { name: 'SOL', predictions: Math.floor(totalPredictions * 0.1), correct: Math.floor(correctPredictions * 0.1) }
                 ];
 
-                setStats({
+                const finalStats = {
                     totalPredictions,
                     correctPredictions,
                     winRate: winRate.toFixed(1),
                     bestStreak,
                     coinStats
+                };
+
+                setStats(finalStats);
+
+                console.log('[Profile] ✅ fetchData 완료:', {
+                    user: user.full_name,
+                    stats: finalStats,
+                    backend_ctt_points: backendCttPoints
                 });
 
             } catch (error) {
-                console.error('Failed to fetch profile data:', error);
+                console.error('[Profile] 💥 fetchData 오류:', error);
             } finally {
                 setIsLoading(false);
             }
@@ -228,7 +328,80 @@ export default function ProfilePage() {
 
     // 수동 새로고침 핸들러
     const handleRefreshCttPoints = async () => {
+        console.log('[Profile] 🔄 수동 CTT 포인트 새로고침 시작');
         await fetchBackendCttPoints();
+    };
+
+    // 🔍 백엔드 연결 테스트 함수 (새로 추가)
+    const testBackendConnection = async () => {
+        console.log('[Profile] 🔍 백엔드 연결 테스트 시작');
+        setIsRefreshing(true);
+        
+        try {
+            // 1. 헬스 체크
+            console.log('[Profile] 1지: 헬스 체크...');
+            const healthCheck = await ServerAPI.checkHealth();
+            console.log('[Profile] 헬스 체크 결과:', healthCheck);
+            
+            if (!healthCheck) {
+                alert('❌ 백엔드 서버 연결 실패!\n\nhttp://localhost:3001에 연결할 수 없습니다.\n백엔드 서버가 실행되고 있는지 확인해주세요.');
+                return;
+            }
+            
+            // 2. 전체 사용자 목록 조회
+            console.log('[Profile] 2지: 사용자 목록 조회...');
+            const allUsers = await ServerAPI.getAllUsers();
+            console.log('[Profile] 사용자 목록 결과:', allUsers);
+            
+            if (!allUsers) {
+                alert('⚠️ 사용자 목록 조회 실패!\n\n백엔드 API에 문제가 있습니다.');
+                return;
+            }
+            
+            // 3. 현재 사용자 찾기
+            console.log('[Profile] 3지: 현재 사용자 찾기...');
+            const currentUser = allUsers.find(u => 
+                u.email === user.email || 
+                u.email?.toLowerCase() === user.email?.toLowerCase()
+            );
+            
+            console.log('[Profile] 현재 사용자 검색 결과:', currentUser);
+            
+            // 4. 결과 보고
+            if (currentUser) {
+                alert(`✅ 백엔드 연결 성공!\n\n현재 사용자: ${currentUser.full_name}\n이메일: ${currentUser.email}\nCTT 포인트: ${currentUser.ctt_points || 0}\n점수: ${currentUser.score || 0}\n\n전체 사용자 수: ${allUsers.length}명`);
+                
+                // 백엔드 데이터로 CTT 포인트 업데이트
+                setBackendCttPoints(currentUser.ctt_points || 0);
+            } else {
+                alert(`⚠️ 사용자를 찾을 수 없음!\n\n찾는 이메일: ${user.email}\n백엔드 사용자 수: ${allUsers.length}명\n\n백엔드에 사용자가 등록되지 않았을 수 있습니다.`);
+                
+                // 사용자 등록 시도
+                console.log('[Profile] 4지: 사용자 등록 시도...');
+                const registered = await ServerAPI.registerUser({
+                    id: user.id,
+                    full_name: user.full_name,
+                    email: user.email,
+                    walletAddress: user.wallet_address || '',
+                    score: user.score || 0,
+                    ctt_points: user.ctt_points || 0,
+                    is_admin: user.is_admin || false
+                });
+                
+                if (registered) {
+                    alert('✅ 사용자 등록 성공!\n\n이제 백엔드에 데이터가 동기화되었습니다.');
+                    setBackendCttPoints(registered.ctt_points || 0);
+                } else {
+                    alert('❌ 사용자 등록 실패!');
+                }
+            }
+            
+        } catch (error) {
+            console.error('[Profile] 💥 백엔드 연결 테스트 오류:', error);
+            alert(`❌ 백엔드 연결 테스트 실패!\n\n오류: ${error.message}\n\n자세한 내용은 개발자 도구 콘솔을 확인해주세요.`);
+        } finally {
+            setIsRefreshing(false);
+        }
     };
 
     // `useCallback`을 사용하여 `handleBalanceUpdate` 함수가 재생성되는 것을 방지합니다.
@@ -344,21 +517,39 @@ export default function ProfilePage() {
                         <CardContent className="p-4 text-center">
                             <div className="flex items-center justify-center gap-2 mb-2">
                                 <Wallet className="w-8 h-8 text-cyan-400" />
-                                <Button
-                                    onClick={handleRefreshCttPoints}
-                                    disabled={isRefreshing}
-                                    variant="ghost"
-                                    size="sm"
-                                    className="p-1 h-auto text-cyan-400 hover:text-cyan-300"
-                                >
-                                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                                </Button>
+                                <div className="flex gap-1">
+                                    <Button
+                                        onClick={handleRefreshCttPoints}
+                                        disabled={isRefreshing}
+                                        variant="ghost"
+                                        size="sm"
+                                        className="p-1 h-auto text-cyan-400 hover:text-cyan-300"
+                                        title="CTT 포인트 새로고침"
+                                    >
+                                        <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                                    </Button>
+                                    <Button
+                                        onClick={testBackendConnection}
+                                        disabled={isRefreshing}
+                                        variant="ghost"
+                                        size="sm"
+                                        className="p-1 h-auto text-orange-400 hover:text-orange-300"
+                                        title="백엔드 연결 테스트"
+                                    >
+                                        🔍
+                                    </Button>
+                                </div>
                             </div>
                             <p className="text-2xl font-bold text-white">{formatCttPoints(backendCttPoints)}</p>
                             <p className="text-sm text-gray-400">{t('ctt_points')}</p>
                             {backendCttPoints !== (user?.ctt_points || 0) && (
                                 <p className="text-xs text-yellow-400 mt-1">
                                     🔄 서버 동기화됨
+                                </p>
+                            )}
+                            {isRefreshing && (
+                                <p className="text-xs text-blue-400 mt-1">
+                                    🔄 데이터 조회 중...
                                 </p>
                             )}
                         </CardContent>
