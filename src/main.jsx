@@ -12,7 +12,7 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ||
 console.log('[Google OAuth] Client ID:', GOOGLE_CLIENT_ID);
 
 // 🚀 Keep-Alive 시스템 자동 초기화 (Render.com 슬립 방지)
-initializeKeepAlive();
+//initializeKeepAlive();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
