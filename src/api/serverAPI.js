@@ -13,17 +13,56 @@ const apiRequest = async (endpoint, options = {}) => {
         ...options
     };
 
+    console.log(`🌐 [API Request] ${options.method || 'GET'} ${url}`);
+    console.log('🔧 [API Request] Options:', defaultOptions);
+    
     try {
-        const response = await fetch(url, defaultOptions);
-        const data = await response.json();
+        console.log('📡 [API Request] 요청 시작...');
         
-        if (!response.ok) {
-            throw new Error(data.error || `HTTP error! status: ${response.status}`);
+        const response = await fetch(url, defaultOptions);
+        
+        console.log(`📊 [API Response] 상태: ${response.status} ${response.statusText}`);
+        console.log('📊 [API Response] Headers:', Object.fromEntries(response.headers.entries()));
+        
+        let data;
+        const contentType = response.headers.get('content-type');
+        
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+            console.log('📊 [API Response] JSON Data:', data);
+        } else {
+            const text = await response.text();
+            console.log('📊 [API Response] Text Data:', text);
+            data = { error: `Unexpected response format: ${text}` };
         }
         
+        if (!response.ok) {
+            const errorMsg = data.error || `HTTP error! status: ${response.status}`;
+            console.error(`❌ [API Error] ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+        
+        console.log(`✅ [API Success] ${endpoint} 요청 성공`);
         return data;
+        
     } catch (error) {
-        console.error(`API Request Error [${endpoint}]:`, error);
+        console.error(`💥 [API Error] ${endpoint} 요청 실패:`, {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+            url: url,
+            options: defaultOptions
+        });
+        
+        // 네트워크 오류 타입 분석
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            console.error('🚫 [Network Error] 네트워크 연결 실패 - 백엔드 서버가 실행되지 않았을 수 있습니다');
+        } else if (error.message.includes('CORS')) {
+            console.error('🚫 [CORS Error] CORS 정책으로 인한 요청 차단');
+        } else if (error.message.includes('Failed to fetch')) {
+            console.error('🚫 [Fetch Error] 요청 실패 - 서버 연결 불가');
+        }
+        
         // 서버 연결 실패 시 null 반환 (하이브리드 모드)
         return null;
     }
@@ -606,196 +645,11 @@ export const SyncStatusMonitor = {
     }
 };
 
-// 🔄 Keep-Alive 시스템 (Render.com 슬립 방지)
-export const KeepAliveManager = {
-    intervalId: null,
-    isRunning: false,
-    wakeUpAttempts: 0,
-    maxWakeUpAttempts: 3,
-    
-    // Keep-alive 시스템 시작 (10분 간격)
-    start() {
-        if (this.isRunning) {
-            console.log('[KeepAlive] 이미 실행 중입니다.');
-            return;
-        }
-        
-        console.log('🚀 [KeepAlive] 서버 슬립 방지 시스템 시작 (10분 간격)');
-        
-        // 즉시 한 번 실행
-        this.pingServer();
-        
-        // 10분(600초)마다 ping
-        this.intervalId = setInterval(() => {
-            this.pingServer();
-        }, 10 * 60 * 1000); // 10분
-        
-        this.isRunning = true;
-    },
-    
-    // Keep-alive 시스템 중지
-    stop() {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
-            this.isRunning = false;
-            console.log('⏹️ [KeepAlive] 시스템 중지');
-        }
-    },
-    
-    // 서버 핑 (슬립 방지)
-    async pingServer() {
-        try {
-            console.log('📡 [KeepAlive] 서버 핑 전송...');
-            const startTime = Date.now();
-            
-            const response = await fetch(`${API_BASE_URL}/health`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-                // 타임아웃 설정 (60초)
-                signal: AbortSignal.timeout(60000)
-            });
-            
-            const endTime = Date.now();
-            const responseTime = endTime - startTime;
-            
-            if (response.ok) {
-                console.log(`✅ [KeepAlive] 서버 응답 성공 (${responseTime}ms)`);
-                this.wakeUpAttempts = 0; // 성공 시 재시도 카운터 리셋
-                return true;
-            } else {
-                console.log(`⚠️ [KeepAlive] 서버 응답 오류: ${response.status}`);
-                return false;
-            }
-        } catch (error) {
-            console.log(`❌ [KeepAlive] 서버 핑 실패:`, error.message);
-            return false;
-        }
-    },
-    
-    // 서버 강제 깨우기 (슬립 상태에서 복구)
-    async wakeUpServer() {
-        console.log('🏃‍♂️ [KeepAlive] 서버 강제 깨우기 시도...');
-        this.wakeUpAttempts++;
-        
-        try {
-            // 첫 번째 요청: 서버를 깨우기 위한 요청 (타임아웃 60초)
-            console.log('📡 [WakeUp] 1차 깨우기 요청 (60초 대기)...');
-            const wakeUpResponse = await fetch(`${API_BASE_URL}/health`, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' },
-                signal: AbortSignal.timeout(60000)
-            });
-            
-            if (wakeUpResponse.ok) {
-                console.log('✅ [WakeUp] 서버 깨우기 성공!');
-                this.wakeUpAttempts = 0;
-                return true;
-            }
-            
-            // 실패 시 재시도
-            if (this.wakeUpAttempts < this.maxWakeUpAttempts) {
-                console.log(`🔄 [WakeUp] ${this.wakeUpAttempts}/${this.maxWakeUpAttempts} 재시도...`);
-                await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기
-                return await this.wakeUpServer();
-            } else {
-                console.log('❌ [WakeUp] 최대 재시도 횟수 초과');
-                this.wakeUpAttempts = 0;
-                return false;
-            }
-            
-        } catch (error) {
-            console.log(`💥 [WakeUp] 서버 깨우기 오류:`, error.message);
-            
-            if (this.wakeUpAttempts < this.maxWakeUpAttempts) {
-                console.log(`🔄 [WakeUp] ${this.wakeUpAttempts}/${this.maxWakeUpAttempts} 재시도...`);
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                return await this.wakeUpServer();
-            } else {
-                console.log('❌ [WakeUp] 최대 재시도 횟수 초과');
-                this.wakeUpAttempts = 0;
-                return false;
-            }
-        }
-    },
-    
-    // 스마트 API 요청 (슬립 감지 및 자동 복구)
-    async smartApiRequest(endpoint, options = {}) {
-        console.log(`🧠 [SmartAPI] ${endpoint} 요청 시작...`);
-        
-        try {
-            // 첫 번째 시도
-            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-                headers: { 'Content-Type': 'application/json' },
-                ...options,
-                signal: AbortSignal.timeout(10000) // 10초 타임아웃
-            });
-            
-            if (response.ok) {
-                console.log(`✅ [SmartAPI] ${endpoint} 성공`);
-                return await response.json();
-            } else {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-        } catch (error) {
-            console.log(`⚠️ [SmartAPI] ${endpoint} 1차 실패:`, error.message);
-            
-            // 타임아웃이나 연결 오류 시 서버 슬립으로 판단
-            if (error.name === 'TimeoutError' || error.message.includes('fetch')) {
-                console.log('😴 [SmartAPI] 서버 슬립 감지 - 깨우기 시도');
-                
-                const wakeUpSuccess = await this.wakeUpServer();
-                if (wakeUpSuccess) {
-                    // 서버가 깨어났으면 다시 요청
-                    try {
-                        console.log(`🔄 [SmartAPI] ${endpoint} 재시도...`);
-                        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
-                            headers: { 'Content-Type': 'application/json' },
-                            ...options,
-                            signal: AbortSignal.timeout(10000)
-                        });
-                        
-                        if (retryResponse.ok) {
-                            console.log(`✅ [SmartAPI] ${endpoint} 재시도 성공`);
-                            return await retryResponse.json();
-                        } else {
-                            throw new Error(`HTTP ${retryResponse.status}`);
-                        }
-                    } catch (retryError) {
-                        console.log(`❌ [SmartAPI] ${endpoint} 재시도 실패:`, retryError.message);
-                        return null;
-                    }
-                } else {
-                    console.log(`❌ [SmartAPI] 서버 깨우기 실패 - ${endpoint} 포기`);
-                    return null;
-                }
-            } else {
-                console.log(`❌ [SmartAPI] ${endpoint} 일반 오류:`, error.message);
-                return null;
-            }
-        }
-    }
-};
-
-// 🚀 자동 초기화 함수
-export const initializeKeepAlive = () => {
-    // 프로덕션 환경에서만 keep-alive 시작
-    if (API_BASE_URL.includes('onrender.com')) {
-        console.log('🌐 [Init] 프로덕션 환경 감지 - Keep-Alive 시스템 시작');
-        KeepAliveManager.start();
-    } else {
-        console.log('💻 [Init] 로컬 환경 감지 - Keep-Alive 건너뛰기');
-    }
-};
-
 // 기본 export
 export default {
     ServerAPI,
     HybridDataManager,
     ServerConnectionMonitor,
     BulkScoreSync,
-    SyncStatusMonitor,
-    KeepAliveManager,
-    initializeKeepAlive
+    SyncStatusMonitor
 };
